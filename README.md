@@ -1,5 +1,7 @@
 # usage-statusline
 
+English | [한국어](README.ko.md)
+
 A Claude Code mod that puts usage in the status line under the prompt: each rate-limit window (usage, time until reset as `h:mm` or `Nd h:mm`, the window), then cost and tokens, each as this session / today:
 
 ```
