@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import type { On } from 'claude-code/testing'
 
-import { count, day, format, left } from './register'
+import { count, day, format, left, limit } from './register'
 
 const NOW = Date.parse('2026-11-13T12:00:00Z')
 const TODAY = day(NOW)
@@ -36,6 +36,10 @@ test('countdown, token count and line', () => {
   expect(left('2026-11-13T11:00:00Z', NOW)).toBe('0:00')
   expect(TODAY).toMatch(/^2026-11-1[34]$/)
   expect([count(950), count(50_000), count(1_234_567)]).toEqual(['950', '50.0k', '1.23M'])
+  expect(limit({ kind: 'five_hour', percentUsed: 40, resetsAt: '2026-11-13T14:13:00Z' }, NOW)).toBe('40% 2:13(5h)')
+  expect(limit({ kind: 'five_hour', percentUsed: 40, resetsAt: '2026-11-13T11:59:00Z' }, NOW)).toBe('0%(5h)') // reset passed
+  expect(limit({ kind: 'five_hour', percentUsed: 40, resetsAt: '2026-11-13T12:00:00Z' }, NOW)).toBe('0%(5h)') // resets now
+  expect(limit({ kind: 'spend_limit', percentUsed: 12 }, NOW)).toBe('12%(spend)')
   expect(format({ rateLimits: [], cost: 0, costToday: 0, tokens: 0, tokensToday: 0 }, NOW)).toBe('$0.00 / $0.00 · 0 tok / 0 tok')
 })
 

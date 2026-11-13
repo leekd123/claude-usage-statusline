@@ -27,10 +27,18 @@ export const day = (now: number) => new Date(now - new Date(now).getTimezoneOffs
 export const count = (n: number) =>
   n >= 1e6 ? `${(n / 1e6).toFixed(2)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}k` : String(n)
 
+// A window whose reset has passed since the last reading is empty now. Its next reset is not known
+// until a response reports it (the 5h window starts again at the next use), so it shows no countdown.
+export const limit = (r: SessionRateLimit, now: number) => {
+  const name = LABEL[r.kind] ?? r.kind
+  if (!r.resetsAt) return `${r.percentUsed}%(${name})`
+  return Date.parse(r.resetsAt) <= now ? `0%(${name})` : `${r.percentUsed}% ${left(r.resetsAt, now)}(${name})`
+}
+
 // Cost and tokens always show, as this session / today, at 0 in a session that has used nothing yet.
 export const format = ({ rateLimits, cost, costToday, tokens, tokensToday }: Line, now: number) =>
   [
-    ...rateLimits.map(r => `${r.percentUsed}%${r.resetsAt ? ` ${left(r.resetsAt, now)}` : ''}(${LABEL[r.kind] ?? r.kind})`),
+    ...rateLimits.map(r => limit(r, now)),
     `$${cost.toFixed(2)} / $${costToday.toFixed(2)}`,
     `${count(tokens)} tok / ${count(tokensToday)} tok`,
   ].join(' · ')
