@@ -1,0 +1,10 @@
+{
+  "name": "usage-statusline",
+  "version": "0.1.0",
+  "description": "Rate-limit usage and time to reset, plus cost and tokens for this session and today, in the status line",
+  "author": { "name": "leekd123", "url": "https://github.com/leekd123" },
+  "homepage": "https://github.com/leekd123/claude-usage-statusline",
+  "repository": "https://github.com/leekd123/claude-usage-statusline",
+  "license": "MIT",
+  "types": "./types/index.d.ts"
+}

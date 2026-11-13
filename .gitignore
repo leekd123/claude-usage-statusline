@@ -1,0 +1,9 @@
+# Written by the engine when it loads the mod for development
+.claude-plugin/types/
+.mcpb-cache/
+# Local Claude Code settings for this folder
+.claude/settings.local.json
+node_modules/
+*.log
+.DS_Store
+Thumbs.db

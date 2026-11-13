@@ -1,0 +1,6 @@
+{
+  "name": "usage-statusline",
+  "description": "Usage status line for Claude Code",
+  "owner": { "name": "leekd123", "url": "https://github.com/leekd123" },
+  "plugins": [{ "name": "usage-statusline", "source": "./" }]
+}
