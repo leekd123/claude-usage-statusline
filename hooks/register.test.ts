@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 import type { On } from 'claude-code/testing'
 
-import { count, day, format, left, limit } from './register'
+import { count, day, format, left, limit, ROLL_BYTES } from './register'
 
 const NOW = Date.parse('2026-11-13T12:00:00Z')
 const TODAY = day(NOW)
@@ -16,7 +16,36 @@ const LIMITS = [
 ]
 
 // The engine beneath: a store, a clock, and a session that has used nothing.
-const engine = (on: On, store: Record<string, unknown>, lines: (string | undefined)[]) => {
+// Stands in for the API: requests 0 and 1 report usage, request 2 got no response.
+const api = (on: On) =>
+  on('turn.step', async function* (_, e) {
+    return {
+      turnId: e.turnId,
+      index: e.index,
+      answer: '',
+      toolUses: [],
+      stopReason: 'end_turn',
+      usage: e.index < 2 ? { ...USAGE, model: e.model } : null,
+    }
+  })
+const step = { turnId: 't', model: 'm', messageCount: 1 }
+
+// A file named in `broken` is there but cannot be stat'ed.
+const engine = (
+  on: On,
+  store: Record<string, unknown>,
+  lines: (string | undefined)[],
+  files: Record<string, string> = {},
+  broken = new Set<string>(),
+) => {
+  on('env.get', (_, e) => ({ value: e.name === 'HOME' ? '/home/u' : undefined }))
+  on('fs.stat', (_, e) => {
+    if (files[e.path] === undefined || broken.has(e.path)) throw new Error('ENOENT')
+    return { value: { kind: 'file', size: files[e.path].length, mtimeMs: 0, isLink: false } }
+  })
+  on('fs.exists', (_, e) => ({ value: files[e.path] !== undefined }))
+  on('fs.read', (_, e) => ({ value: files[e.path] ?? '' }))
+  on('fs.write', (_, e) => ((files[e.path] = e.text), { value: undefined }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('session.id', () => ({ value: 'this' }))
   on('ui.status', (_, e) => (lines.push(e.text), { value: undefined }))
@@ -61,23 +90,13 @@ test('responses add tokens mid-turn, a measure shares its limits, and today sums
     'tok:2026-01-01:old': 5,
   }
   const lines: (string | undefined)[] = []
-  engine(on, store, lines)
-  // Stands in for the API: requests 0 and 1 report usage, request 2 got no response.
-  on('turn.step', async function* (_, e) {
-    return {
-      turnId: e.turnId,
-      index: e.index,
-      answer: '',
-      toolUses: [],
-      stopReason: 'end_turn',
-      usage: e.index < 2 ? { ...USAGE, model: e.model } : null,
-    }
-  })
+  const files: Record<string, string> = {}
+  engine(on, store, lines, files)
+  api(on)
 
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   expect(lines.at(-1)).toBe('$0.00 / $10.00 · 0 tok / 900.0k tok') // no limits read anywhere yet
 
-  const step = { turnId: 't', model: 'm', messageCount: 1 }
   await drain($.turn.step({ ...step, index: 0 }))
   expect(lines.at(-1)).toBe('$0.00 / $10.00 · 50.0k tok / 950.0k tok') // mid-turn, before any measure
   await drain($.turn.step({ ...step, index: 1, agentId: 'a1' })) // a subagent's request counts too
@@ -93,4 +112,38 @@ test('responses add tokens mid-turn, a measure shares its limits, and today sums
     `tok:${TODAY}:other`,
     `tok:${TODAY}:this`,
   ])
+
+  // One line per response that reported usage, in this day's file for this session.
+  const [[path, text]] = Object.entries(files)
+  expect(path.replaceAll('\\', '/')).toEndWith(`/home/u/.claude/usage-statusline/${TODAY}.this.jsonl`) // the engine makes it absolute
+  const log = text.trim().split('\n').map(l => JSON.parse(l))
+  const tokens = { input: 1_000, output: 2_000, cacheRead: 40_000, cacheWrite: 7_000 }
+  expect(log).toEqual([
+    { t: '2026-11-13T12:00:00.000Z', session: 'this', model: 'm', ...tokens, cost: 0 },
+    { t: '2026-11-13T12:00:00.000Z', session: 'this', agent: 'a1', model: 'm', ...tokens, cost: 0 },
+  ])
+})
+
+test('a full log file rolls to the next part, and one that cannot be stat\'ed is never written over', async ($, on) => {
+  const files: Record<string, string> = {}
+  const broken = new Set<string>()
+  engine(on, {}, [], files, broken)
+  api(on)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  const lineCount = (path: string) => files[path].trim().split('\n').length
+
+  await drain($.turn.step({ ...step, index: 0 }))
+  const [first] = Object.keys(files)
+  files[first] = 'x'.repeat(ROLL_BYTES + 1) // stands in for a day of lines
+  await drain($.turn.step({ ...step, index: 0 }))
+  await drain($.turn.step({ ...step, index: 0 }))
+
+  const second = first.replace(/\.jsonl$/, '.2.jsonl')
+  expect(Object.keys(files)).toEqual([first, second])
+  expect(files[first]).toBe('x'.repeat(ROLL_BYTES + 1)) // left as it was
+  expect(lineCount(second)).toBe(2)
+
+  broken.add(second)
+  await drain($.turn.step({ ...step, index: 0 }))
+  expect(lineCount(second)).toBe(2) // the line is lost, the file kept
 })

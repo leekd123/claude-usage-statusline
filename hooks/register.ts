@@ -67,6 +67,35 @@ const sharedLimits = async ($: EngineInterface) => (await $.store.get('limits'))
 
 // A reload runs session.start again and refetches, so a module variable is enough here.
 let cost = 0
+// The session cost already written to the log; each line carries what was added since.
+let costLogged = 0
+// Writes run one at a time: each reads the file and writes it back whole ($.fs has no append).
+let writing: Promise<unknown> = Promise.resolve()
+
+// $.fs.read refuses a file over 4 MiB, so a file this big is left as it is and the lines go on in the next part.
+export const ROLL_BYTES = 3 * 1024 * 1024
+
+// One file per day and session, so sessions running at once never overwrite each other's lines.
+// Part 1 has no number; later parts are <day>.<session>.2.jsonl and on.
+const logFile = async ($: EngineInterface, now: number, part: number) => {
+  const dir =
+    (await $.env.get('CLAUDE_CONFIG_DIR')) ??
+    `${(await $.env.get('HOME')) ?? (await $.env.get('USERPROFILE'))}/.claude`
+  return `${dir}/usage-statusline/${day(now)}.${await $.session.id()}${part > 1 ? `.${part}` : ''}.jsonl`
+}
+
+const log = ($: EngineInterface, entry: Record<string, unknown>, now: number) =>
+  (writing = writing.then(async () => {
+    for (let part = 1; ; part++) {
+      const path = await logFile($, now, part)
+      const stat = await $.fs.stat(path).catch(() => undefined)
+      // A file that is there but cannot be stat'ed or read throws here, so it is never written over.
+      if (!stat && (await $.fs.exists(path))) throw new Error(`cannot stat ${path}`)
+      if ((stat?.size ?? 0) > ROLL_BYTES) continue
+      const text = stat ? await $.fs.read(path) : '' // missing: the part's first line
+      return $.fs.write(path, `${text}${JSON.stringify(entry)}\n`)
+    }
+  }).catch(() => {})) // a failed write loses one line, never the status line or the file
 
 const show = async ($: EngineInterface, now: number) => {
   const used = await read($, tokens)
@@ -92,6 +121,7 @@ export const register: Register = on => {
     const now = await $.clock.now()
     const usage = await $.session.usage()
     cost = usage.cost?.usd ?? 0
+    costLogged = cost // a resumed session's earlier cost was logged when it was spent
     // An earlier reading of this session's seeds the shared one only where none is kept yet.
     if (usage.rateLimits.length > 0 && !(await sharedLimits($))) await $.store.set('limits', usage.rateLimits)
     await show($, now)
@@ -109,7 +139,22 @@ export const register: Register = on => {
       const used = u.input_tokens + u.output_tokens + u.cache_read_input_tokens + u.cache_creation_input_tokens
       await update($, tokens, n => n + used)
       cost = (await $.session.usage()).cost?.usd ?? cost
-      await show($, await $.clock.now())
+      const now = await $.clock.now()
+      // shortcut: cost is the session's change since the last line, so a response's cost can land on the next line;
+      // the day's sum is right. Per-response cost would need the price table.
+      await log($, {
+        t: new Date(now).toISOString(),
+        session: await $.session.id(),
+        agent: e.agentId,
+        model: e.model,
+        input: u.input_tokens,
+        output: u.output_tokens,
+        cacheRead: u.cache_read_input_tokens,
+        cacheWrite: u.cache_creation_input_tokens,
+        cost: Math.max(0, cost - costLogged),
+      }, now)
+      costLogged = Math.max(costLogged, cost)
+      await show($, now)
     }
     return result
   })

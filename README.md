@@ -14,6 +14,14 @@ It updates after every model response, mid-turn included, and each minute redraw
 
 **Today's totals** (cost and tokens) sum the sessions on this machine that ran with this mod since local midnight, each kept under its own key in the mod's store. Sessions on other machines or on the web, and those from before the mod was installed, are not counted. A session's whole cost counts on the day it was last measured.
 
+**Usage log.** Every model response that reports usage also adds one JSON line to `~/.claude/usage-statusline/<YYYY-MM-DD>.<session id>.jsonl` (under `CLAUDE_CONFIG_DIR` when that is set), one file per local day and session, for your own statistics:
+
+```
+{"t":"2026-11-17T01:03:12.000Z","session":"…","agent":"…","model":"…","input":1000,"output":2000,"cacheRead":40000,"cacheWrite":7000,"cost":0.12}
+```
+
+`agent` is there only for a subagent's response. `cost` is the session's estimated cost added since the previous line, so one response's cost can land on the next line; a day's sum is right. A file past 3 MiB is left as it is and the lines go on in `<YYYY-MM-DD>.<session id>.2.jsonl`, then `.3`, and so on. The mod only writes these files and never deletes them.
+
 ## Install
 
 At the prompt of a Claude Code terminal session:
