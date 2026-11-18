@@ -1,5 +1,6 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, SessionRateLimit, SessionUsage } from 'claude-code'
+import { parseLog, statsHtml } from './stats'
 
 const LABEL: Record<string, string> = { five_hour: '5h', seven_day: '7d', spend_limit: 'spend' }
 
@@ -77,11 +78,28 @@ export const ROLL_BYTES = 3 * 1024 * 1024
 
 // One file per day and session, so sessions running at once never overwrite each other's lines.
 // Part 1 has no number; later parts are <day>.<session>.2.jsonl and on.
-const logFile = async ($: EngineInterface, now: number, part: number) => {
+const logDir = async ($: EngineInterface) => {
   const dir =
     (await $.env.get('CLAUDE_CONFIG_DIR')) ??
     `${(await $.env.get('HOME')) ?? (await $.env.get('USERPROFILE'))}/.claude`
-  return `${dir}/usage-statusline/${day(now)}.${await $.session.id()}${part > 1 ? `.${part}` : ''}.jsonl`
+  return `${dir}/usage-statusline`
+}
+
+const logFile = async ($: EngineInterface, now: number, part: number) =>
+  `${await logDir($)}/${day(now)}.${await $.session.id()}${part > 1 ? `.${part}` : ''}.jsonl`
+
+// Builds stats.html from every day's logs, next to them, and opens it in the browser.
+const openStats = async ($: EngineInterface) => {
+  const dir = await logDir($)
+  const files = (await $.fs.list(dir).catch(() => [])).filter(f => f.kind === 'file' && f.name.endsWith('.jsonl'))
+  const texts = await Promise.all(files.map(f => $.fs.read(`${dir}/${f.name}`).catch(() => '')))
+  const entries = files.flatMap((f, i) => parseLog(f.name.slice(0, 10), texts[i]))
+  const file = `${dir}/stats.html`
+  await $.fs.write(file, statsHtml(entries, day(await $.clock.now())))
+  const windows = (await $.env.get('OS')) === 'Windows_NT'
+  const mac = !windows && (await $.process.run(['uname'])).stdout.trim() === 'Darwin'
+  await $.process.run(windows ? ['cmd', '/c', 'start', '', file.replaceAll('/', '\\')] : [mac ? 'open' : 'xdg-open', file])
+  return file
 }
 
 const log = ($: EngineInterface, entry: Record<string, unknown>, now: number) =>
@@ -118,6 +136,7 @@ const show = async ($: EngineInterface, now: number) => {
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const ran = await next(e)
+    await $.command.register({ name: 'usage-stats', description: 'Open usage statistics from the daily logs in the browser' })
     const now = await $.clock.now()
     const usage = await $.session.usage()
     cost = usage.cost?.usd ?? 0
@@ -157,6 +176,11 @@ export const register: Register = on => {
       await show($, now)
     }
     return result
+  })
+
+  on('command.run', { command: 'usage-stats' }, async $ => {
+    const file = await openStats($).catch(() => undefined)
+    return { text: file ? `Usage statistics opened: ${file}` : 'usage-statusline: could not build or open the statistics page' }
   })
 
   // A measurement carries the fresh rate-limit reading: share it with every session.

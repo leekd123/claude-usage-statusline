@@ -46,6 +46,7 @@ const engine = (
   on('fs.exists', (_, e) => ({ value: files[e.path] !== undefined }))
   on('fs.read', (_, e) => ({ value: files[e.path] ?? '' }))
   on('fs.write', (_, e) => ((files[e.path] = e.text), { value: undefined }))
+  on('command.register', () => ({ value: undefined }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('session.id', () => ({ value: 'this' }))
   on('ui.status', (_, e) => (lines.push(e.text), { value: undefined }))
@@ -122,6 +123,36 @@ test('responses add tokens mid-turn, a measure shares its limits, and today sums
     { t: '2026-11-13T12:00:00.000Z', session: 'this', model: 'm', ...tokens, cost: 0 },
     { t: '2026-11-13T12:00:00.000Z', session: 'this', agent: 'a1', model: 'm', ...tokens, cost: 0 },
   ])
+})
+
+test('/usage-stats builds the page from every day\'s logs and opens it', async ($, on) => {
+  const files: Record<string, string> = {}
+  const ran: string[][] = []
+  engine(on, {}, [], files)
+  api(on)
+  on('fs.list', () => ({
+    value: Object.keys(files).map(p => ({ name: p.split(/[\\/]/).at(-1)!, kind: 'file', size: 0, mtimeMs: 0, isLink: false })),
+  }))
+  on('process.run', (_, e) => (ran.push([...e.argv]), { value: { exitCode: 0, stdout: 'Linux\n', stderr: '' } }))
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+
+  await drain($.turn.step({ ...step, index: 0 })) // today: 50k tokens, model m
+  const [today] = Object.keys(files)
+  const dir = today.slice(0, today.length - `${TODAY}.this.jsonl`.length)
+  // An earlier day, another session and model, with a line cut off mid-write.
+  files[`${dir}2026-11-01.other.jsonl`] =
+    `${JSON.stringify({ session: 'other', model: 'big', input: 1, output: 2, cacheRead: 3, cacheWrite: 4, cost: 1.5 })}\n{"cut`
+
+  const { text } = await $.command.run({ command: 'usage-stats' })
+
+  const page = files[`${dir}stats.html`]
+  // The module's own spelling; the engine makes the path absolute where it touches the disk.
+  expect(text).toBe('Usage statistics opened: /home/u/.claude/usage-statusline/stats.html')
+  expect(ran.at(-1)).toEqual(['xdg-open', '/home/u/.claude/usage-statusline/stats.html'])
+  expect(page).toContain('<div class="label">Today</div><div class="value">50.0k tok</div><div class="sub">$0.00 · 1 responses · 1 sessions</div>')
+  expect(page).toContain('<div class="label">All time</div><div class="value">50.0k tok</div><div class="sub">$1.50 · 2 responses · 2 sessions</div>')
+  expect(page).toContain('<td>2026-11-01</td><td>1</td><td>1</td><td>1</td><td>2</td><td>3</td><td>4</td><td><b>10</b></td><td>$1.50</td>')
+  expect(page).toContain('<td>big</td>')
 })
 
 test('a full log file rolls to the next part, and one that cannot be stat\'ed is never written over', async ($, on) => {
