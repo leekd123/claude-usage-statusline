@@ -161,14 +161,13 @@ export const statsHtml = (entries: Entry[], today: string, rateLimits: readonly 
 :root{color-scheme:light}:root[data-theme=dark]{color-scheme:dark}
 @media (prefers-color-scheme:dark){:root:not([data-theme=light]){color-scheme:dark}}
 body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 system-ui,sans-serif}
-header{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}
 .theme{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
 .theme button{font:inherit;font-size:12px;padding:4px 10px;border:0;background:var(--card);color:var(--dim);cursor:pointer}
 .theme button+button{border-left:1px solid var(--line)}
 .theme button[aria-pressed=true]{background:var(--fg);color:var(--bg)}
 .chart{position:relative;padding-top:28px}.hit{fill:transparent}.day:hover .hit{fill:var(--hover)}
 .tip{position:absolute;pointer-events:none;background:var(--fg);color:var(--bg);font-size:12px;padding:4px 8px;border-radius:6px;white-space:nowrap;transform:translate(-50%,-100%)}
-main{max-width:1200px;margin:0 auto;padding:24px 16px}
+main{max-width:1100px;width:100%;box-sizing:border-box;margin:0 auto;padding:24px}
 h1{font-size:20px;margin:0 0 4px}h2{font-size:15px;margin:32px 0 8px}
 .note{color:var(--dim);font-size:12px}
 .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-top:16px}
@@ -181,25 +180,27 @@ svg{width:100%;height:auto;display:block}svg text{fill:var(--dim);font-size:10px
 table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
 th,td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
 th:first-child,td:first-child{text-align:left}th{color:var(--dim);font-weight:500}
-.layout{display:grid;grid-template-columns:200px minmax(0,1fr);gap:24px;align-items:start}
-.side{position:sticky;top:16px;margin-top:20px}
+.app{display:grid;grid-template-columns:220px minmax(0,1fr);min-height:100vh}
+.side{position:sticky;top:0;height:100vh;box-sizing:border-box;overflow-y:auto;display:flex;flex-direction:column;padding:20px 12px;border-right:1px solid var(--line);background:var(--card)}
+.side h1{font-size:16px;margin:0 8px 20px}
 .side .label{margin:0 0 6px 8px}
 .side nav{display:flex;flex-direction:column;gap:2px}
-.side button{display:flex;justify-content:space-between;gap:8px;font:inherit;text-align:left;padding:6px 8px;border:0;border-radius:6px;background:none;color:var(--fg);cursor:pointer}
-.side button span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.side small{color:var(--dim)}
-.side button:hover{background:var(--hover)}.side button[aria-pressed=true]{background:var(--card);box-shadow:inset 0 0 0 1px var(--line);font-weight:600}
-@media (max-width:720px){.layout{grid-template-columns:minmax(0,1fr)}.side{position:static}.side nav{flex-direction:row;flex-wrap:wrap}}
-</style></head><body><main>
-<header><div><h1>Claude usage</h1>
-<div class="note">Built ${esc(today)} from this machine's usage-statusline logs. Cost is the engine's API-price estimate, not what a subscription bills.</div></div>
-<div class="theme" role="group" aria-label="Theme"><button data-theme="light">Light</button><button data-theme="dark">Dark</button><button data-theme="system">System</button></div></header>
+.side nav button{display:flex;justify-content:space-between;gap:8px;font:inherit;text-align:left;padding:6px 8px;border:0;border-radius:6px;background:none;color:var(--fg);cursor:pointer}
+.side nav button span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.side small{color:var(--dim)}
+.side nav button:hover{background:var(--hover)}.side nav button[aria-pressed=true]{background:var(--bg);box-shadow:inset 0 0 0 1px var(--line);font-weight:600}
+.side .foot{margin-top:auto;padding:16px 8px 0;display:flex;flex-direction:column;gap:8px;align-items:flex-start}
+main>h2:first-child{margin-top:0}
+@media (max-width:720px){.app{grid-template-columns:minmax(0,1fr)}.side{position:static;height:auto;border-right:0;border-bottom:1px solid var(--line)}.side nav{flex-direction:row;flex-wrap:wrap}.side .foot{margin-top:12px}}
+</style></head><body><div class="app">
+<aside class="side"><h1>Claude usage</h1><div class="label">Projects</div><nav aria-label="Projects">${nav}</nav>
+<div class="foot"><div class="note">Built ${esc(today)} from this machine's usage-statusline logs</div>
+<div class="theme" role="group" aria-label="Theme"><button data-theme="light">Light</button><button data-theme="dark">Dark</button><button data-theme="system">System</button></div></div></aside>
+<main>
 <h2>Rate limits</h2>
 ${limits(rateLimits)}
-<div class="layout">
-<aside class="side"><div class="label">Projects</div><nav aria-label="Projects">${nav}</nav></aside>
-<div>${view('', entries, today)}${projects.map(([n, list]) => view(n, list, today)).join('')}</div>
-</div>
-</main>
+${view('', entries, today)}${projects.map(([n, list]) => view(n, list, today)).join('')}
+<p class="note">Cost is the engine's API-price estimate, not what a subscription bills.</p>
+</main></div>
 <script>
 // Theme: light, dark or the system's; the choice is kept in this browser (a file:// page may refuse storage).
 const root = document.documentElement
@@ -234,13 +235,13 @@ setInterval(drawLimits, 60000)
 const setProject = p => {
   if (!document.querySelector('.view[data-project="' + CSS.escape(p) + '"]')) p = ''
   for (const v of document.querySelectorAll('.view')) v.hidden = v.dataset.project !== p
-  for (const b of document.querySelectorAll('.side button')) b.setAttribute('aria-pressed', String(b.dataset.project === p))
+  for (const b of document.querySelectorAll('.side nav button')) b.setAttribute('aria-pressed', String(b.dataset.project === p))
   try { localStorage.setItem('usage-project', p) } catch {}
 }
 let project = ''
 try { project = localStorage.getItem('usage-project') || '' } catch {}
 setProject(project)
-for (const b of document.querySelectorAll('.side button')) b.onclick = () => setProject(b.dataset.project)
+for (const b of document.querySelectorAll('.side nav button')) b.onclick = () => setProject(b.dataset.project)
 
 // Chart tooltips: above the hovered day's column.
 for (const chart of document.querySelectorAll('.chart')) {
