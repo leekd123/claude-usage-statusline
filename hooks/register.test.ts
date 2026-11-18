@@ -49,6 +49,7 @@ const engine = (
   on('command.register', () => ({ value: undefined }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('session.id', () => ({ value: 'this' }))
+  on('session.root', () => ({ value: '/work/alpha' }))
   on('ui.status', (_, e) => (lines.push(e.text), { value: undefined }))
   on('clock.now', () => ({ value: NOW }))
   on('clock.every', () => ({ value: undefined }))
@@ -120,8 +121,8 @@ test('responses add tokens mid-turn, a measure shares its limits, and today sums
   const log = text.trim().split('\n').map(l => JSON.parse(l))
   const tokens = { input: 1_000, output: 2_000, cacheRead: 40_000, cacheWrite: 7_000 }
   expect(log).toEqual([
-    { t: '2026-11-13T12:00:00.000Z', session: 'this', model: 'm', ...tokens, cost: 0 },
-    { t: '2026-11-13T12:00:00.000Z', session: 'this', agent: 'a1', model: 'm', ...tokens, cost: 0 },
+    { t: '2026-11-13T12:00:00.000Z', session: 'this', project: 'alpha', model: 'm', ...tokens, cost: 0 },
+    { t: '2026-11-13T12:00:00.000Z', session: 'this', project: 'alpha', agent: 'a1', model: 'm', ...tokens, cost: 0 },
   ])
 })
 
@@ -164,6 +165,15 @@ test('/usage-stats builds the page from every day\'s logs and opens it', async (
   expect(page).toContain('<td>2026-11-01</td><td>1</td><td>1</td><td>1</td><td>2</td><td>3</td><td>4</td><td><b>10</b></td><td>$1.50</td>')
   expect(page).toContain('<td>big</td>')
   expect(page).toContain('No rate-limit reading yet') // none shared in this store
+
+  // A sidebar entry and a view per project, the most recently used first; a line from before the
+  // project was logged counts under "(no project)". Each view holds only its own project's lines.
+  expect(page).toContain(
+    '<button data-project=""><span>All projects</span><small>50.0k</small></button><button data-project="alpha"><span>alpha</span><small>50.0k</small></button><button data-project="(no project)"><span>(no project)</span><small>10</small></button>',
+  )
+  const alpha = page!.split('<section class="view" data-project="alpha" hidden>')[1]!.split('</section>')[0]!
+  expect(alpha).toContain('<div class="label">All time</div><div class="value">50.0k tok</div><div class="sub">$0.00 · 1 responses · 1 sessions</div>')
+  expect(alpha).not.toContain('<td>big</td>')
 
   // The shared reading shows as one card per window, its reset time for the page's countdown.
   store.limits = LIMITS

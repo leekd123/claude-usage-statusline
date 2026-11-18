@@ -17,12 +17,12 @@ It updates after every model response, mid-turn included, and each minute redraw
 **Usage log.** Every model response that reports usage also adds one JSON line to `~/.claude/usage-statusline/<YYYY-MM-DD>.<session id>.jsonl` (under `CLAUDE_CONFIG_DIR` when that is set), one file per local day and session, for your own statistics:
 
 ```
-{"t":"2026-11-17T01:03:12.000Z","session":"…","agent":"…","model":"…","input":1000,"output":2000,"cacheRead":40000,"cacheWrite":7000,"cost":0.12}
+{"t":"2026-11-17T01:03:12.000Z","session":"…","project":"…","agent":"…","model":"…","input":1000,"output":2000,"cacheRead":40000,"cacheWrite":7000,"cost":0.12}
 ```
 
-`agent` is there only for a subagent's response. `cost` is the session's estimated cost added since the previous line, so one response's cost can land on the next line; a day's sum is right. A file past 3 MiB is left as it is and the lines go on in `<YYYY-MM-DD>.<session id>.2.jsonl`, then `.3`, and so on. The mod only writes these files and never deletes them.
+`project` is the name of the session's root folder. `agent` is there only for a subagent's response. `cost` is the session's estimated cost added since the previous line, so one response's cost can land on the next line; a day's sum is right. A file past 3 MiB is left as it is and the lines go on in `<YYYY-MM-DD>.<session id>.2.jsonl`, then `.3`, and so on. The mod only writes these files and never deletes them.
 
-**Statistics page.** Run `/usage-stats` to build `stats.html` next to the logs from every day's files and open it in your browser: each rate-limit window (the latest reading any session took, how much is used, and the time left to its reset, counting down while the page is open), totals for today, the last 7 and 30 days and all time, a bar chart of tokens per day over the last 30 days (point at a day for its figures), and tables by model and by day. Light, Dark and System at the top right pick the theme, and the browser keeps the choice. It is a plain file with no server or network, rebuilt at the end of every turn: keep it open and refresh the browser for the latest figures, or bookmark it.
+**Statistics page.** Run `/usage-stats` to build `stats.html` next to the logs from every day's files and open it in your browser: each rate-limit window (the latest reading any session took, how much is used, and the time left to its reset, counting down while the page is open), totals for today, the last 7 and 30 days and all time, a bar chart of tokens per day over the last 30 days (point at a day for its figures), and tables by model and by day. The sidebar on the left filters these by project (lines logged before projects were recorded show under `(no project)`), and the browser keeps the choice. Light, Dark and System at the top right pick the theme, and the browser keeps the choice. It is a plain file with no server or network, rebuilt at the end of every turn: keep it open and refresh the browser for the latest figures, or bookmark it.
 
 ## Install
 

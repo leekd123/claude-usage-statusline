@@ -172,6 +172,7 @@ export const register: Register = on => {
       await log($, {
         t: new Date(now).toISOString(),
         session: await $.session.id(),
+        project: (await $.session.root()).split(/[\\/]/).filter(Boolean).at(-1) ?? '', // the root folder's name, as ponytail names it
         agent: e.agentId,
         model: e.model,
         input: u.input_tokens,
