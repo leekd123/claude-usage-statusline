@@ -134,6 +134,7 @@ test('/usage-stats builds the page from every day\'s logs and opens it', async (
     value: Object.keys(files).map(p => ({ name: p.split(/[\\/]/).at(-1)!, kind: 'file', size: 0, mtimeMs: 0, isLink: false })),
   }))
   on('process.run', (_, e) => (ran.push([...e.argv]), { value: { exitCode: 0, stdout: 'Linux\n', stderr: '' } }))
+  on('turn.complete', () => ({ text: '' }))
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
 
   await drain($.turn.step({ ...step, index: 0 })) // today: 50k tokens, model m
@@ -142,6 +143,14 @@ test('/usage-stats builds the page from every day\'s logs and opens it', async (
   // An earlier day, another session and model, with a line cut off mid-write.
   files[`${dir}2026-11-01.other.jsonl`] =
     `${JSON.stringify({ session: 'other', model: 'big', input: 1, output: 2, cacheRead: 3, cacheWrite: 4, cost: 1.5 })}\n{"cut`
+
+  // A main turn's end rebuilds the page without opening it; a subagent's does nothing.
+  const done = { answer: '', durationMs: 1, isAborted: false, turnId: 't', reason: 'answer' as const }
+  await $.turn.complete({ ...done, agentId: 'a1' })
+  expect(files[`${dir}stats.html`]).toBeUndefined()
+  await $.turn.complete(done)
+  expect(files[`${dir}stats.html`]).toContain('<td>big</td>')
+  expect(ran).toEqual([])
 
   const { text } = await $.command.run({ command: 'usage-stats' })
 

@@ -88,14 +88,22 @@ const logDir = async ($: EngineInterface) => {
 const logFile = async ($: EngineInterface, now: number, part: number) =>
   `${await logDir($)}/${day(now)}.${await $.session.id()}${part > 1 ? `.${part}` : ''}.jsonl`
 
-// Builds stats.html from every day's logs, next to them, and opens it in the browser.
-const openStats = async ($: EngineInterface) => {
+// Builds stats.html from every day's logs, next to them: a plain file a browser refresh rereads.
+// shortcut: reads every log each time, fine for months of logs; keep per-day sums if it ever gets slow.
+const writeStats = async ($: EngineInterface) => {
+  await writing // this turn's lines first
   const dir = await logDir($)
   const files = (await $.fs.list(dir).catch(() => [])).filter(f => f.kind === 'file' && f.name.endsWith('.jsonl'))
   const texts = await Promise.all(files.map(f => $.fs.read(`${dir}/${f.name}`).catch(() => '')))
-  const entries = files.flatMap((f, i) => parseLog(f.name.slice(0, 10), texts[i]))
+  const entries = files.flatMap((f, i) => parseLog(f.name.slice(0, 10), texts[i] ?? ''))
   const file = `${dir}/stats.html`
   await $.fs.write(file, statsHtml(entries, day(await $.clock.now())))
+  return file
+}
+
+// Builds the page fresh and opens it in the browser.
+const openStats = async ($: EngineInterface) => {
+  const file = await writeStats($)
   const windows = (await $.env.get('OS')) === 'Windows_NT'
   const mac = !windows && (await $.process.run(['uname'])).stdout.trim() === 'Darwin'
   await $.process.run(windows ? ['cmd', '/c', 'start', '', file.replaceAll('/', '\\')] : [mac ? 'open' : 'xdg-open', file])
@@ -176,6 +184,13 @@ export const register: Register = on => {
       await show($, now)
     }
     return result
+  })
+
+  // After each main turn the page is rebuilt, so an open stats.html shows the new figures on a refresh.
+  on('turn.complete', async ($, e, next) => {
+    const ran = await next(e)
+    if (e.agentId === undefined) await writeStats($).catch(() => {})
+    return ran
   })
 
   on('command.run', { command: 'usage-stats' }, async $ => {

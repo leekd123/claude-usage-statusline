@@ -100,7 +100,7 @@ const table = (first: string, rows: [string, Sum][]) =>
 export const statsHtml = (entries: Entry[], today: string) => {
   const byDay = group(entries, e => e.day)
   const within = (days: number) => {
-    const from = lastDays(today, days)[0]
+    const from = lastDays(today, days)[0] ?? today
     const s = empty()
     for (const e of entries) if (e.day >= from && e.day <= today) add(s, e)
     return s
