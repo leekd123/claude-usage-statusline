@@ -80,15 +80,43 @@ export const ROLL_BYTES = 3 * 1024 * 1024
 
 // One file per day and session, so sessions running at once never overwrite each other's lines.
 // Part 1 has no number; later parts are <day>.<session>.2.jsonl and on.
-const logDir = async ($: EngineInterface) => {
-  const dir =
-    (await $.env.get('CLAUDE_CONFIG_DIR')) ??
-    `${(await $.env.get('HOME')) ?? (await $.env.get('USERPROFILE'))}/.claude`
-  return `${dir}/usage-statusline`
-}
+const claudeDir = async ($: EngineInterface) =>
+  (await $.env.get('CLAUDE_CONFIG_DIR')) ?? `${(await $.env.get('HOME')) ?? (await $.env.get('USERPROFILE'))}/.claude`
+
+const logDir = async ($: EngineInterface) => `${await claudeDir($)}/usage-statusline`
 
 // The session root's folder name, as ponytail names a project.
 const project = async ($: EngineInterface) => (await $.session.root()).split(/[\\/]/).filter(Boolean).at(-1) ?? ''
+
+// The session's title as Claude Code shows it: the last custom-title record in its transcript. A search
+// tool reads it, so a transcript of any size is never read whole: grep, as ponytail does, or on Windows,
+// where Git's grep is seldom on the PATH, findstr, handed the record's text in a file since its quotes do
+// not survive a command line. Other lines can quote that text (a conversation about it), so only a line
+// that parses as the record counts.
+// shortcut: looks only in the projects folder named after the session root; a session moved by /cd or a
+// worktree, or a root past 200 characters (hashed), gets no title and shows its id instead.
+export const TITLE_RECORD = '"type":"custom-title"'
+const realPath = async ($: EngineInterface, path: string) => (await $.fs.stat(path, { resolve: true }).catch(() => undefined))?.realPath
+
+const title = async ($: EngineInterface) => {
+  const folder = (await $.session.root()).replace(/[^a-zA-Z0-9]/g, '-')
+  const file = await realPath($, `${await claudeDir($)}/projects/${folder}/${await $.session.id()}.jsonl`)
+  if (!file) return undefined
+  let argv = ['grep', '-F', TITLE_RECORD, file]
+  if ((await $.env.get('OS')) === 'Windows_NT') {
+    const pattern = `${await logDir($)}/title-pattern.txt`
+    if (!(await $.fs.exists(pattern))) await $.fs.write(pattern, TITLE_RECORD) // no newline: an empty pattern matches every line
+    argv = ['findstr', '/L', `/G:${await realPath($, pattern)}`, file]
+  }
+  const found = await $.process.run(argv).catch(() => undefined)
+  for (const line of (found?.stdout ?? '').split(/\r?\n/).reverse()) {
+    try {
+      const record = JSON.parse(line)
+      if (record.type === 'custom-title' && typeof record.customTitle === 'string' && record.customTitle !== '') return record.customTitle as string
+    } catch {} // a line that only quotes the text, or none
+  }
+  return undefined
+}
 
 const logFile = async ($: EngineInterface, now: number, part: number) =>
   `${await logDir($)}/${day(now)}.${await $.session.id()}${part > 1 ? `.${part}` : ''}.jsonl`
@@ -211,9 +239,11 @@ export const register: Register = on => {
   on('turn.complete', async ($, e, next) => {
     const ran = await next(e)
     if (e.agentId === undefined) {
-      // One line per main turn, however it ended, so the page can count turns beside responses.
+      // One line per main turn, however it ended, so the page can count turns beside responses; it carries
+      // the turn's length and the session's title as of now, for the page's sessions table.
       const now = await $.clock.now()
-      await log($, { t: new Date(now).toISOString(), session: await $.session.id(), project: await project($), turn: true }, now)
+      const session = await $.session.id()
+      await log($, { t: new Date(now).toISOString(), session, project: await project($), turn: true, ms: e.durationMs, title: await title($) }, now)
       await writeStats($).catch(() => {})
     }
     return ran

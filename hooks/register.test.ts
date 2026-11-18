@@ -40,11 +40,12 @@ const engine = (
   files: Record<string, string> = {},
   broken = new Set<string>(),
   clock = true, // false: the test brings mock.clock, whose timers it can run
+  windows = false, // true: the OS variable says Windows
 ) => {
-  on('env.get', (_, e) => ({ value: e.name === 'HOME' ? '/home/u' : undefined }))
+  on('env.get', (_, e) => ({ value: e.name === 'HOME' ? '/home/u' : e.name === 'OS' && windows ? 'Windows_NT' : undefined }))
   on('fs.stat', (_, e) => {
     if (files[e.path] === undefined || broken.has(e.path)) throw new Error('ENOENT')
-    return { value: { kind: 'file', size: files[e.path].length, mtimeMs: 0, isLink: false } }
+    return { value: { kind: 'file', size: files[e.path].length, mtimeMs: 0, isLink: false, realPath: e.path } }
   })
   on('fs.exists', (_, e) => ({ value: files[e.path] !== undefined }))
   on('fs.read', (_, e) => ({ value: files[e.path] ?? '' }))
@@ -140,25 +141,31 @@ test('/usage-stats builds the page from every day\'s logs and opens it', async (
   on('fs.list', () => ({
     value: Object.keys(files).map(p => ({ name: p.split(/[\\/]/).at(-1)!, kind: 'file', size: 0, mtimeMs: 0, isLink: false })),
   }))
-  on('process.run', (_, e) => (ran.push([...e.argv]), { value: { exitCode: 0, stdout: 'Linux\n', stderr: '' } }))
+  // grep finds the session's title in its transcript (the last of two); uname says Linux.
+  const titles = '{"type":"custom-title","customTitle":"Old"}\n{"type":"custom-title","customTitle":"Usage stats"}\n'
+  on('process.run', (_, e) => (ran.push([...e.argv]), { value: { exitCode: 0, stdout: e.argv[0] === 'grep' ? titles : 'Linux\n', stderr: '' } }))
   on('turn.complete', () => ({ text: '' }))
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
 
   await drain($.turn.step({ ...step, index: 0 })) // today: 50k tokens, model m
   const [today] = logs(files)
   const dir = today.slice(0, today.length - `${TODAY}.this.jsonl`.length)
+  // The session's transcript, where its title is looked for (what grep answers stands for its content).
+  const transcript = dir.replace(/usage-statusline([\\/])$/, 'projects$1-work-alpha$1this.jsonl')
+  files[transcript] = ''
   // An earlier day, another session and model, with a line cut off mid-write.
   files[`${dir}2026-11-01.other.jsonl`] =
     `${JSON.stringify({ session: 'other', model: 'big', input: 1, output: 2, cacheRead: 3, cacheWrite: 4, cost: 1.5 })}\n{"cut`
 
   // A main turn's end rebuilds the page without opening it; a subagent's does nothing.
-  const done = { answer: '', durationMs: 1, isAborted: false, turnId: 't', reason: 'answer' as const }
+  const done = { answer: '', durationMs: 65_000, isAborted: false, turnId: 't', reason: 'answer' as const }
   delete files[`${dir}stats.html`] // the one session start built
   await $.turn.complete({ ...done, agentId: 'a1' })
   expect(files[`${dir}stats.html`]).toBeUndefined()
   await $.turn.complete(done)
   expect(files[`${dir}stats.html`]).toContain('<td>big</td>')
-  expect(ran).toEqual([])
+  expect(ran.map(a => a[0])).toEqual(['grep']) // the title only: nothing opened
+  expect(ran[0]!.at(-1)).toBe(transcript) // the path the engine resolved
 
   const { text } = await $.command.run({ command: 'usage-stats' })
 
@@ -168,14 +175,18 @@ test('/usage-stats builds the page from every day\'s logs and opens it', async (
   expect(ran.at(-1)).toEqual(['xdg-open', '/home/u/.claude/usage-statusline/stats.html'])
   expect(page).toContain('<div class="label">Today</div><div class="value">50.0k tok</div><div class="sub">$0.00 · 1 turns · 1 responses · 1 sessions</div>') // the main turn's end, not the subagent's
   expect(page).toContain('<div class="label">All time</div><div class="value">50.0k tok</div><div class="sub">$1.50 · 1 turns · 2 responses · 2 sessions</div>')
-  expect(page).toContain('<td>2026-11-01</td><td>0</td><td>1</td><td>1</td><td>1</td><td>2</td><td>3</td><td>4</td><td><b>10</b></td><td>$1.50</td>')
+  expect(page).toContain('<td>2026-11-01</td><td>0</td><td>0s</td><td>1</td><td>1</td><td>1</td><td>2</td><td>3</td><td>4</td><td><b>10</b></td><td>$1.50</td>')
   expect(page).toContain('<td>big</td>')
+  // A row per session, the most recently used first: its title from the turn line, else the start of its id.
+  expect(page).toContain('<h2>Sessions</h2>')
+  expect(page).toContain('<tr><td>Usage stats</td><td>alpha</td><td><time datetime="2026-11-13T12:00:00.000Z">2026-11-13 12:00</time></td>')
+  expect(page).toContain('<td>1</td><td>1</td><td>1m 5s</td><td><b>50.0k</b></td><td>$0.00</td></tr><tr><td class="id">other</td><td>(no project)</td>')
   // One table per grouping, Day alone shown until the checkboxes say otherwise; by day and model, a row per pair.
   expect(page).toContain('<div class="scroll breakdown" data-by="day,model" hidden><table class="two"><thead><tr><th>Day</th><th>Model</th><th>Responses</th>')
   expect(page).toContain('<tr><td>2026-11-01</td><td>big</td><td>1</td><td>1</td><td>1</td><td>2</td><td>3</td><td>4</td><td><b>10</b></td><td>$1.50</td></tr>')
   expect(page).toContain('<div class="scroll breakdown" data-by="day"><table><thead><tr><th>Day</th><th>Turns</th>')
   expect(page).toContain('<div class="scroll breakdown" data-by="model" hidden>')
-  expect(page).toContain('<tr><td>All time</td><td>1</td><td>2</td><td>2</td>') // no grouping: one row, turns included
+  expect(page).toContain('<tr><td>All time</td><td>1</td><td>1m 5s</td><td>2</td><td>2</td>') // no grouping: one row, turns and their time included
   expect(page).toContain('<th>Model</th><th>Responses</th>') // turns have no model: no Turns column there
   expect(page).not.toContain('<td>?</td>') // and no row for the turn lines
   expect(page).toContain('No rate-limit reading yet') // none shared in this store
@@ -246,4 +257,27 @@ test('the page is built at session start, and on the minute timer only after a n
   await drain($.turn.step({ ...step, index: 0 }))
   await clock.advance(60_000)
   expect(files[built]).toContain(' in 0 ms, 1 lines in 1 files') // the new line, mid-turn
+})
+
+test('on Windows the title is found with findstr, and a line that only quotes the record is passed over', async ($, on) => {
+  const files: Record<string, string> = {}
+  const ran: string[][] = []
+  engine(on, {}, [], files, undefined, true, true) // on Windows
+  api(on)
+  // findstr's answer: the record, then a later line of conversation that quotes its text.
+  const found = '{"type":"custom-title","customTitle":"Win title"}\r\n{"type":"user","text":"grep for \\"type\\":\\"custom-title\\""}\r\n'
+  on('process.run', (_, e) => (ran.push([...e.argv]), { value: { exitCode: 0, stdout: found, stderr: '' } }))
+  on('turn.complete', () => ({ text: '' }))
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await drain($.turn.step({ ...step, index: 0 }))
+  const [log] = logs(files)
+  const dir = log!.slice(0, log!.length - `${TODAY}.this.jsonl`.length)
+  const transcript = dir.replace(/usage-statusline([\\/])$/, 'projects$1-work-alpha$1this.jsonl')
+  files[transcript] = ''
+
+  await $.turn.complete({ answer: '', durationMs: 1000, isAborted: false, turnId: 't', reason: 'answer' })
+
+  expect(files[`${dir}title-pattern.txt`]).toBe('"type":"custom-title"') // the text findstr looks for, no newline
+  expect(ran.find(a => a[0] === 'findstr')).toEqual(['findstr', '/L', `/G:${dir}title-pattern.txt`, transcript])
+  expect(files[log!]).toContain('"turn":true,"ms":1000,"title":"Win title"}')
 })

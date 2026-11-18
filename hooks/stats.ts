@@ -14,11 +14,14 @@ export type Entry = {
   cacheWrite: number
   cost: number
   turn: boolean // a main turn's end, not a response: counts a turn and nothing else
+  t: string // when it was logged, ISO
+  ms: number // a turn's length; 0 on a response
+  title?: string // a turn's session title as of its end
 }
 
-type Sum = { responses: number; turns: number; sessions: Set<string>; input: number; output: number; cacheRead: number; cacheWrite: number; cost: number }
+type Sum = { responses: number; turns: number; ms: number; sessions: Set<string>; input: number; output: number; cacheRead: number; cacheWrite: number; cost: number }
 
-const empty = (): Sum => ({ responses: 0, turns: 0, sessions: new Set(), input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 })
+const empty = (): Sum => ({ responses: 0, turns: 0, ms: 0, sessions: new Set(), input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 })
 const total = (s: Sum) => s.input + s.output + s.cacheRead + s.cacheWrite
 const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0)
 
@@ -43,6 +46,9 @@ export const parseLog = (day: string, text: string): Entry[] =>
         cacheWrite: num(o.cacheWrite),
         cost: num(o.cost),
         turn: o.turn === true,
+        t: String(o.t ?? ''),
+        ms: num(o.ms),
+        title: typeof o.title === 'string' ? o.title : undefined,
       }]
     } catch {
       return []
@@ -53,6 +59,7 @@ const add = (s: Sum, e: Entry) => {
   s.sessions.add(e.session)
   if (e.turn) {
     s.turns++
+    s.ms += e.ms
     return
   }
   s.responses++
@@ -106,12 +113,38 @@ const chart = (byDay: Map<string, Sum>, today: string) => {
   return `<div class="chart"><svg viewBox="0 0 ${30 * (w + gap)} ${h + 22}" role="img" aria-label="Tokens per day, last 30 days">${bars}</svg><div class="tip" hidden></div></div>`
 }
 
-// A turn has no model, so a table grouped by model leaves the Turns column out.
+// A turn has no model, so a table grouped by model leaves the Turns and Agent time columns out.
 const row = (names: string[], s: Sum, turns: boolean) =>
-  `<tr>${names.map(n => `<td>${esc(n)}</td>`).join('')}${turns ? `<td>${s.turns}</td>` : ''}<td>${s.responses}</td><td>${s.sessions.size}</td><td>${fmt(s.input)}</td><td>${fmt(s.output)}</td><td>${fmt(s.cacheRead)}</td><td>${fmt(s.cacheWrite)}</td><td><b>${fmt(total(s))}</b></td><td>${usd(s.cost)}</td></tr>`
+  `<tr>${names.map(n => `<td>${esc(n)}</td>`).join('')}${turns ? `<td>${s.turns}</td><td>${elapsed(s.ms)}</td>` : ''}<td>${s.responses}</td><td>${s.sessions.size}</td><td>${fmt(s.input)}</td><td>${fmt(s.output)}</td><td>${fmt(s.cacheRead)}</td><td>${fmt(s.cacheWrite)}</td><td><b>${fmt(total(s))}</b></td><td>${usd(s.cost)}</td></tr>`
 
 const table = (heads: string[], rows: [string[], Sum][], turns = true) =>
-  `<table${heads.length > 1 ? ' class="two"' : ''}><thead><tr>${heads.map(h => `<th>${h}</th>`).join('')}${turns ? '<th>Turns</th>' : ''}<th>Responses</th><th>Sessions</th><th>Input</th><th>Output</th><th>Cache read</th><th>Cache write</th><th>Total</th><th>Cost</th></tr></thead><tbody>${rows.map(([names, s]) => row(names, s, turns)).join('')}</tbody></table>`
+  `<table${heads.length > 1 ? ' class="two"' : ''}><thead><tr>${heads.map(h => `<th>${h}</th>`).join('')}${turns ? '<th>Turns</th><th>Agent time</th>' : ''}<th>Responses</th><th>Sessions</th><th>Input</th><th>Output</th><th>Cache read</th><th>Cache write</th><th>Total</th><th>Cost</th></tr></thead><tbody>${rows.map(([names, s]) => row(names, s, turns)).join('')}</tbody></table>`
+
+// Agent time as ponytail shows it: seconds while short.
+export const elapsed = (ms: number) => {
+  const sec = Math.round(ms / 1000)
+  if (sec < 60) return `${sec}s`
+  if (sec < 3600) return `${Math.floor(sec / 60)}m ${sec % 60}s`
+  return `${Math.floor(sec / 3600)}h ${Math.floor((sec % 3600) / 60)}m`
+}
+
+// A time the page's script writes in the viewer's local time; until then, UTC to the minute.
+const when = (iso: string) => `<time datetime="${esc(iso)}">${esc(iso.slice(0, 16).replace('T', ' '))}</time>`
+
+// One row per session, the most recently used first: its title (the latest any of its turns logged; the
+// start of its id when it has none), project, first and last line, turns, responses, agent time, tokens.
+const sessions = (entries: Entry[]) => {
+  const rows = [...group(entries, e => e.session)].map(([id, s]) => {
+    const own = entries.filter(e => e.session === id).sort((a, b) => a.t.localeCompare(b.t))
+    const title = own.filter(e => e.title).at(-1)?.title
+    return { id, s, title, project: own.at(-1)?.project ?? '', first: own[0]?.t ?? '', last: own.at(-1)?.t ?? '' }
+  })
+  rows.sort((a, b) => b.last.localeCompare(a.last))
+  const body = rows
+    .map(r => `<tr><td${r.title ? '' : ' class="id"'}>${esc(r.title ?? r.id.slice(0, 8))}</td><td>${esc(r.project)}</td><td>${when(r.first)}</td><td>${when(r.last)}</td><td>${r.s.turns}</td><td>${r.s.responses}</td><td>${elapsed(r.s.ms)}</td><td><b>${fmt(total(r.s))}</b></td><td>${usd(r.s.cost)}</td></tr>`)
+    .join('')
+  return `<table class="two"><thead><tr><th>Session</th><th>Project</th><th>Started</th><th>Last used</th><th>Turns</th><th>Responses</th><th>Agent time</th><th>Total</th><th>Cost</th></tr></thead><tbody>${body}</tbody></table>`
+}
 
 const LIMIT_NAME: Record<string, string> = { five_hour: '5-hour window', seven_day: '7-day window', spend_limit: 'Spend limit' }
 
@@ -157,6 +190,8 @@ ${breakdown('day,model', table(['Day', 'Model'], byDayModel, false))}
 ${breakdown('day', table(['Day'], days.map(([d, s]) => [[d], s]), true))}
 ${breakdown('model', table(['Model'], byModel.map(([m, s]) => [[m], s]), false))}
 ${breakdown('', table(['Period'], [[['All time'], all]], true))}
+<h2>Sessions</h2>
+<div class="scroll">${sessions(entries)}</div>
 </section>`
 }
 
@@ -201,6 +236,7 @@ svg{width:100%;height:auto;display:block}svg text{fill:var(--dim);font-size:10px
 .scroll{overflow-x:auto}
 table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
 th,td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+td.id{color:var(--dim);font-family:ui-monospace,monospace}
 th:first-child,td:first-child,.two th:nth-child(2),.two td:nth-child(2){text-align:left}
 .group{display:flex;gap:14px;align-items:center;color:var(--dim);font-size:12px;margin-bottom:6px}.group label{display:inline-flex;gap:4px;align-items:center;color:var(--fg);cursor:pointer}th{color:var(--dim);font-weight:500}
 .app{display:grid;grid-template-columns:220px minmax(0,1fr);min-height:100vh}
@@ -305,6 +341,9 @@ const setGroups = on => {
 try { groups = JSON.parse(localStorage.getItem('usage-groups')) || groups } catch {}
 setGroups(groups)
 for (const c of document.querySelectorAll('[data-group]')) c.onchange = () => setGroups({ ...groups, [c.dataset.group]: c.checked })
+
+// Session times in the viewer's local time.
+for (const t of document.querySelectorAll('time[datetime]')) t.textContent = new Date(t.dateTime).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 
 // Chart tooltips: above the hovered day's column.
 for (const chart of document.querySelectorAll('.chart')) {
