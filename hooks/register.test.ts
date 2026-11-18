@@ -91,6 +91,18 @@ test('a new session shows the shared limits and zeros for itself', async ($, on)
   expect(lines.at(-1)).toBe('4% 3:23(5h) · 10% 4d 8:00(7d) · $0.00 / $3.00 · 0 tok / 2.0k tok')
 })
 
+test('a session whose counter restarted adds to what it used earlier today, not over it', async ($, on) => {
+  const store: Record<string, unknown> = { [`tok:${TODAY}:this`]: 700_000 }
+  const lines: (string | undefined)[] = []
+  engine(on, store, lines, {})
+  api(on)
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await drain($.turn.step({ ...step, index: 0 }))
+  expect(lines.at(-1)).toBe('$0.00 / $0.00 · 50.0k tok / 750.0k tok')
+  expect(store[`tok:${TODAY}:this`]).toBe(750_000)
+})
+
 test('responses add tokens mid-turn, a measure shares its limits, and today sums the sessions', async ($, on) => {
   const store: Record<string, unknown> = {
     [`cost:${TODAY}:other`]: 10,
@@ -115,8 +127,7 @@ test('responses add tokens mid-turn, a measure shares its limits, and today sums
   expect(lines.at(-1)).toBe('4% 3:23(5h) · 10% 4d 8:00(7d) · $5.72 / $15.72 · 100.0k tok / 1.00M tok')
   expect(store.limits).toEqual(LIMITS)
   expect(Object.keys(store).sort()).toEqual([
-    `cost:${TODAY}:other`,
-    `cost:${TODAY}:this`,
+    `cost:${TODAY}:other`, // this session's cost goes in with its next line
     'limits',
     `tok:${TODAY}:other`,
     `tok:${TODAY}:this`,

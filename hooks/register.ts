@@ -46,11 +46,16 @@ export const format = ({ rateLimits, cost, costToday, tokens, tokensToday }: Lin
   ].join(' · ')
 
 // Each session writes only its own key per kind ('cost', 'tok'), so sessions running at once never
-// overwrite each other.
-// shortcut: a session's whole total counts on the day it was last updated (one crossing midnight,
-// or a resumed one, lands on the later day); sessions without this plugin, or on other machines, are not counted.
-const record = async ($: EngineInterface, kind: string, value: number, now: number) =>
-  $.store.set(`${kind}:${day(now)}:${await $.session.id()}`, value)
+// overwrite each other. Each response adds what its log line carries, on the day it is logged, so today
+// matches the page: a session's own counters restart on a resume and so cannot be stored as they stand.
+// Sessions without this plugin, or on other machines, are not counted.
+let adding: Promise<unknown> = Promise.resolve()
+const add = ($: EngineInterface, kind: string, value: number, now: number) =>
+  (adding = adding.then(async () => {
+    if (value <= 0) return
+    const key = `${kind}:${day(now)}:${await $.session.id()}`
+    await $.store.set(key, Number((await $.store.get(key)) ?? 0) + value)
+  }).catch(() => {})) // one response's subagents finish at once; adds run one at a time
 
 // Re-read on the timer too: another session's use reaches this line within a minute, not at this session's next response.
 const sumToday = async ($: EngineInterface, kind: string, now: number) => {
@@ -209,14 +214,13 @@ const log = ($: EngineInterface, entry: Record<string, unknown>, now: number) =>
 
 const show = async ($: EngineInterface, now: number) => {
   const used = await read($, tokens)
-  if (cost > 0) await record($, 'cost', cost, now)
-  if (used > 0) await record($, 'tok', used, now)
+  await adding
   $.ui.status(
     format(
       {
         rateLimits: (await sharedLimits($)) ?? [],
         cost,
-        costToday: await sumToday($, 'cost', now),
+        costToday: (await sumToday($, 'cost', now)) + Math.max(0, cost - costLogged), // measured, not yet on a line
         tokens: used,
         tokensToday: await sumToday($, 'tok', now),
       },
@@ -257,6 +261,9 @@ export const register: Register = on => {
       await update($, tokens, n => n + used)
       cost = (await $.session.usage()).cost?.usd ?? cost
       const now = await $.clock.now()
+      const added = Math.max(0, cost - costLogged)
+      await add($, 'tok', used, now)
+      await add($, 'cost', added, now)
       // shortcut: cost is the session's change since the last line, so a response's cost can land on the next line;
       // the day's sum is right. Per-response cost would need the price table.
       await log($, {
@@ -269,7 +276,7 @@ export const register: Register = on => {
         output: u.output_tokens,
         cacheRead: u.cache_read_input_tokens,
         cacheWrite: u.cache_creation_input_tokens,
-        cost: Math.max(0, cost - costLogged),
+        cost: added,
       }, now)
       costLogged = Math.max(costLogged, cost)
       await show($, now)

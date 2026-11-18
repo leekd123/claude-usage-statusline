@@ -22,7 +22,7 @@ A Claude Code mod that shows your usage in the status line under the prompt, kee
 |---|---|
 | Tokens | Every model response's usage, the main thread's and subagents': input, output, cache read and cache write together. Cache reads count the conversation again on every request, so the total grows much faster than the context window. Counted from when the mod loaded in this session; a resumed session starts again at zero. |
 | Cost | The engine's API-price estimate for this session. On a subscription it is not what you are billed. |
-| Today | The sessions on this machine that ran with this mod since local midnight. Sessions on other machines or on the web, and those from before the mod was installed, are not counted. A session's whole cost counts on the day it was last measured. |
+| Today | The sessions on this machine that ran with this mod since local midnight. Sessions on other machines or on the web, and those from before the mod was installed, are not counted. Each response counts on the day it is logged, the same as on the statistics page. |
 
 ## Statistics page
 
