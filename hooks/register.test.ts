@@ -2,6 +2,7 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { On } from 'claude-code/testing'
 
 import { count, day, format, left, limit, ROLL_BYTES } from './register'
+import { statsHtml } from './stats'
 
 const NOW = Date.parse('2026-11-13T12:00:00Z')
 const TODAY = day(NOW)
@@ -163,7 +164,7 @@ test('/usage-stats builds the page from every day\'s logs and opens it', async (
   await $.turn.complete({ ...done, agentId: 'a1' })
   expect(files[`${dir}stats.html`]).toBeUndefined()
   await $.turn.complete(done)
-  expect(files[`${dir}stats.html`]).toContain('<td>big</td>')
+  expect(files[`${dir}stats.html`]).toContain('"m":"big"')
   expect(ran.map(a => a[0])).toEqual(['grep']) // the title only: nothing opened
   expect(ran[0]!.at(-1)).toBe(transcript) // the path the engine resolved
 
@@ -173,33 +174,31 @@ test('/usage-stats builds the page from every day\'s logs and opens it', async (
   // The module's own spelling; the engine makes the path absolute where it touches the disk.
   expect(text).toBe('Usage statistics opened: /home/u/.claude/usage-statusline/stats.html')
   expect(ran.at(-1)).toEqual(['xdg-open', '/home/u/.claude/usage-statusline/stats.html'])
-  expect(page).toContain('<div class="label">Today</div><div class="value">50.0k tok</div><div class="sub">$0.00 · 1 turns · 1 responses · 1 sessions</div>') // the main turn's end, not the subagent's
-  expect(page).toContain('<div class="label">All time</div><div class="value">50.0k tok</div><div class="sub">$1.50 · 1 turns · 2 responses · 2 sessions</div>')
-  expect(page).toContain('<td>2026-11-01</td><td>0</td><td>0s</td><td>1</td><td>1</td><td>1</td><td>2</td><td>3</td><td>4</td><td><b>10</b></td><td>$1.50</td>')
-  expect(page).toContain('<td>big</td>')
-  // A row per session, the most recently used first: its title from the turn line, else the start of its id.
-  expect(page).toContain('<h2>Sessions</h2>')
-  expect(page).toContain('<tr><td>Usage stats</td><td>alpha</td><td><time datetime="2026-11-13T12:00:00.000Z">2026-11-13 12:00</time></td>')
-  expect(page).toContain('<td>1</td><td>1</td><td>1m 5s</td><td><b>50.0k</b></td><td>$0.00</td></tr><tr><td class="id">other</td><td>(no project)</td>')
-  // One table per grouping, Day alone shown until the checkboxes say otherwise; by day and model, a row per pair.
-  expect(page).toContain('<div class="scroll breakdown" data-by="day,model" hidden><table class="two"><thead><tr><th>Day</th><th>Model</th><th>Responses</th>')
-  expect(page).toContain('<tr><td>2026-11-01</td><td>big</td><td>1</td><td>1</td><td>1</td><td>2</td><td>3</td><td>4</td><td><b>10</b></td><td>$1.50</td></tr>')
-  expect(page).toContain('<div class="scroll breakdown" data-by="day"><table><thead><tr><th>Day</th><th>Turns</th>')
-  expect(page).toContain('<div class="scroll breakdown" data-by="model" hidden>')
-  expect(page).toContain('<tr><td>All time</td><td>1</td><td>1m 5s</td><td>2</td><td>2</td>') // no grouping: one row, turns and their time included
-  expect(page).toContain('<th>Model</th><th>Responses</th>') // turns have no model: no Turns column there
-  expect(page).not.toContain('<td>?</td>') // and no row for the turn lines
+  // The page carries the logs summed per day, project, session and model ('' for turn lines), and each
+  // session's latest title; its script draws the period, chart and tables from them.
+  const data = JSON.parse(page!.split('<script id="data" type="application/json">')[1]!.split('</script>')[0]!)
+  const T = '2026-11-13T12:00:00.000Z'
+  const none = { r: 0, n: 0, ms: 0, i: 0, o: 0, cr: 0, cw: 0, c: 0 }
+  expect(data.today).toBe(TODAY)
+  expect(data.titles).toEqual({ this: 'Usage stats' }) // the latest grep found, from the turn line
+  expect([...data.rows].sort((a, b) => (a.s + a.m).localeCompare(b.s + b.m))).toEqual([
+    // An earlier day's line with no time and no project; the cut-off line is skipped.
+    { d: '2026-11-01', p: '(no project)', s: 'other', m: 'big', ...none, r: 1, i: 1, o: 2, cr: 3, cw: 4, c: 1.5, f: '', l: '' },
+    { d: TODAY, p: 'alpha', s: 'this', m: '', ...none, n: 1, ms: 65_000, f: T, l: T }, // the main turn, not the subagent's
+    { d: TODAY, p: 'alpha', s: 'this', m: 'm', ...none, r: 1, i: 1_000, o: 2_000, cr: 40_000, cw: 7_000, f: T, l: T },
+  ])
+  // What the script draws into, and its choices: period, metric, grouping.
+  for (const id of ['scope', 'kpis', 'chart', 'breakdown', 'sessions']) expect(page).toContain(`id="${id}"`)
+  expect(page).toContain('<div class="seg" role="group" aria-label="period"><button data-period="1">Today</button><button data-period="7">7d</button><button data-period="30">30d</button><button data-period="90">90d</button><button data-period="0">All</button></div>')
+  expect(page).toContain('<button data-metric="turns">Turns</button><button data-metric="responses">Responses</button>')
   expect(page).toContain('No rate-limit reading yet') // none shared in this store
   expect(page).toContain('<a class="repo" href="https://github.com/leekd123/claude-usage-statusline"')
 
-  // A sidebar entry and a view per project, the most recently used first; a line from before the
-  // project was logged counts under "(no project)". Each view holds only its own project's lines.
+  // A sidebar entry per project, the most recently used first, with its tokens; a line from before the
+  // project was logged counts under "(no project)".
   expect(page).toContain(
     '<button data-project=""><span>All projects</span><small>50.0k</small></button><button data-project="alpha"><span>alpha</span><small>50.0k</small></button><button data-project="(no project)"><span>(no project)</span><small>10</small></button>',
   )
-  const alpha = page!.split('<section class="view" data-project="alpha" hidden>')[1]!.split('</section>')[0]!
-  expect(alpha).toContain('<div class="label">All time</div><div class="value">50.0k tok</div><div class="sub">$0.00 · 1 turns · 1 responses · 1 sessions</div>')
-  expect(alpha).not.toContain('<td>big</td>')
 
   // The shared reading shows as one card per window, its reset time for the page's countdown.
   store.limits = LIMITS
@@ -280,4 +279,15 @@ test('on Windows the title is found with findstr, and a line that only quotes th
   expect(files[`${dir}title-pattern.txt`]).toBe('"type":"custom-title"') // the text findstr looks for, no newline
   expect(ran.find(a => a[0] === 'findstr')).toEqual(['findstr', '/L', `/G:${dir}title-pattern.txt`, transcript])
   expect(files[log!]).toContain('"turn":true,"ms":1000,"title":"Win title"}')
+})
+
+test('a title or project with markup in it stays data: it cannot close the data block or add a tag', () => {
+  const evil = '</script><img src=x onerror=alert(1)>'
+  const page = statsHtml(
+    [{ day: '2026-11-13', session: 's', project: evil, model: 'm', input: 1, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, turn: true, t: '2026-11-13T00:00:00.000Z', ms: 0, title: evil }],
+    '2026-11-13',
+  )
+  expect(page.split('</script>').length).toBe(3) // only the data block's and the script's own ends
+  expect(page).not.toContain('<img')
+  expect(page).toContain('\\u003c/script>\\u003cimg') // in the data, as JSON reads back
 })
