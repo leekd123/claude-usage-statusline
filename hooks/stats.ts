@@ -21,6 +21,9 @@ const empty = (): Sum => ({ responses: 0, sessions: new Set(), input: 0, output:
 const total = (s: Sum) => s.input + s.output + s.cacheRead + s.cacheWrite
 const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0)
 
+// The same as plugin.json's repository.
+const REPO = 'https://github.com/leekd123/claude-usage-statusline'
+
 export const NO_PROJECT = '(no project)'
 
 // One file's lines; a line that is not JSON (cut off mid-write, edited by hand) is skipped.
@@ -188,12 +191,13 @@ th:first-child,td:first-child{text-align:left}th{color:var(--dim);font-weight:50
 .side nav button{display:flex;justify-content:space-between;gap:8px;font:inherit;text-align:left;padding:6px 8px;border:0;border-radius:6px;background:none;color:var(--fg);cursor:pointer}
 .side nav button span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.side small{color:var(--dim)}
 .side nav button:hover{background:var(--hover)}.side nav button[aria-pressed=true]{background:var(--bg);box-shadow:inset 0 0 0 1px var(--line);font-weight:600}
+.repo{color:var(--dim);font-size:12px;text-decoration:none}.repo:hover{color:var(--fg);text-decoration:underline}
 .side .foot{margin-top:auto;padding:16px 8px 0;display:flex;flex-direction:column;gap:8px;align-items:flex-start}
 main>h2:first-child{margin-top:0}
 @media (max-width:720px){.app{grid-template-columns:minmax(0,1fr)}.side{position:static;height:auto;border-right:0;border-bottom:1px solid var(--line)}.side nav{flex-direction:row;flex-wrap:wrap}.side .foot{margin-top:12px}}
 </style></head><body><div class="app">
 <aside class="side"><h1>Claude usage</h1><div class="label">Projects</div><nav aria-label="Projects">${nav}</nav>
-<div class="foot"><div class="note">Built ${esc(today)} from this machine's usage-statusline logs</div>
+<div class="foot"><a class="repo" href="${REPO}" target="_blank" rel="noopener noreferrer">usage-statusline on GitHub ↗</a><div class="note">Built ${esc(today)} from this machine's usage-statusline logs</div>
 <div class="theme" role="group" aria-label="Theme"><button data-theme="light">Light</button><button data-theme="dark">Dark</button><button data-theme="system">System</button></div></div></aside>
 <main>
 <h2>Rate limits</h2>

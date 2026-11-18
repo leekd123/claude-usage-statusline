@@ -165,6 +165,7 @@ test('/usage-stats builds the page from every day\'s logs and opens it', async (
   expect(page).toContain('<td>2026-11-01</td><td>1</td><td>1</td><td>1</td><td>2</td><td>3</td><td>4</td><td><b>10</b></td><td>$1.50</td>')
   expect(page).toContain('<td>big</td>')
   expect(page).toContain('No rate-limit reading yet') // none shared in this store
+  expect(page).toContain('<a class="repo" href="https://github.com/leekd123/claude-usage-statusline"')
 
   // A sidebar entry and a view per project, the most recently used first; a line from before the
   // project was logged counts under "(no project)". Each view holds only its own project's lines.
