@@ -129,9 +129,9 @@ const fillProjects = (entries: Entry[], info: Record<string, SessionInfo>) => {
   })
 }
 
-// The desktop app's own folders for a conversation with no folder picked (scratch-<day>-<id>): one each,
-// so they are shown as one project.
-const SCRATCH = /^scratch-\d{4}-\d{2}-\d{2}-[0-9a-z]+$/
+// The desktop app's own folders for a conversation with no folder picked (scratch-<day>-<id>), and the
+// pre-started sessions it keeps under ~/.claude/spares (spare-<id>): one each, so they are shown as one project.
+const SCRATCH = /^(scratch-\d{4}-\d{2}-\d{2}-[0-9a-z]+|spare-[0-9A-Za-z]{6})$/
 export const SCRATCH_PROJECT = '(scratch)'
 
 // What a session's transcript gave for one the logs name no title or project for.

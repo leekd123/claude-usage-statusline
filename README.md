@@ -39,7 +39,7 @@ Run `/usage-stats` to build `stats.html` from the usage log and open it in your 
 **What you can change**
 
 - **Period**: Today, 7d, 30d, 90d or All, at the top.
-- **Project**: the sidebar on the left filters everything by project. Lines logged before projects were recorded show under `(no project)`, and the desktop app's own folders for a conversation with no folder picked (`scratch-<day>-<id>`) together under `(scratch)`.
+- **Project**: the sidebar on the left filters everything by project. Lines logged before projects were recorded show under `(no project)`, and the desktop app's own folders for a conversation with no folder picked (`scratch-<day>-<id>`) and for the sessions it starts ahead of time (`~/.claude/spares/spare-<id>`) together under `(scratch)`.
 - **Chart metric** and **breakdown grouping**: the buttons above the chart and the Day and Model checkboxes above the breakdown.
 - **Theme**: Light, Dark or System, at the foot of the sidebar.
 - **Auto refresh**: the button at the foot of the sidebar shows the seconds to the next reload and turns it off and on.

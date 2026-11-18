@@ -355,10 +355,11 @@ test('the desktop app scratch folders show as one project', () => {
       { ...line, session: 'a', project: 'scratch-2026-11-10-1cd218' },
       { ...line, session: 'b', project: 'scratch-2026-11-13-e2d38a' },
       { ...line, session: 'c', project: 'scratch-pad' }, // a folder of that name, not the app's
+      { ...line, session: 'd', project: 'spare-6PkYnH' },
     ],
     '2026-11-18',
   )
   const data = JSON.parse(page.split('<script id="data" type="application/json">')[1]!.split('</script>')[0]!)
-  expect(data.rows.map((r: { s: string; p: string }) => [r.s, r.p])).toEqual([['a', '(scratch)'], ['b', '(scratch)'], ['c', 'scratch-pad']])
-  expect(page).toContain('<button data-project="(scratch)"><span>(scratch)</span><small>2</small></button>')
+  expect(data.rows.map((r: { s: string; p: string }) => [r.s, r.p])).toEqual([['a', '(scratch)'], ['b', '(scratch)'], ['c', 'scratch-pad'], ['d', '(scratch)']])
+  expect(page).toContain('<button data-project="(scratch)"><span>(scratch)</span><small>3</small></button>')
 })
