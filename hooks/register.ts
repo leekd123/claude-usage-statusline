@@ -1,6 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, SessionRateLimit, SessionUsage } from 'claude-code'
-import { parseLog, statsHtml } from './stats'
+import { NO_PROJECT, parseLog, statsHtml } from './stats'
+import type { Entry, SessionInfo } from './stats'
 
 const LABEL: Record<string, string> = { five_hour: '5h', seven_day: '7d', spend_limit: 'spend' }
 
@@ -86,36 +87,76 @@ const claudeDir = async ($: EngineInterface) =>
 const logDir = async ($: EngineInterface) => `${await claudeDir($)}/usage-statusline`
 
 // The session root's folder name, as ponytail names a project.
-const project = async ($: EngineInterface) => (await $.session.root()).split(/[\\/]/).filter(Boolean).at(-1) ?? ''
+const project = async ($: EngineInterface) => base(await $.session.root()) ?? ''
 
-// The session's title as Claude Code shows it: the last custom-title record in its transcript. A search
-// tool reads it, so a transcript of any size is never read whole: grep, as ponytail does, or on Windows,
-// where Git's grep is seldom on the PATH, findstr, handed the record's text in a file since its quotes do
-// not survive a command line. Other lines can quote that text (a conversation about it), so only a line
-// that parses as the record counts.
-// shortcut: looks only in the projects folder named after the session root; a session moved by /cd or a
-// worktree, or a root past 200 characters (hashed), gets no title and shows its id instead.
+// A session's title and project as Claude Code knows them, from its transcript: the last custom-title
+// record, and the cwd its lines carry. A search tool reads the transcript, so one of any size is never read
+// whole: grep, as ponytail does, or on Windows, where Git's grep is seldom on the PATH, findstr, handed the
+// text in a file since its quotes do not survive a command line. Other lines can quote that text (a
+// conversation about it), so only a line that parses as the record counts.
 export const TITLE_RECORD = '"type":"custom-title"'
+export const CWD_RECORD = '"cwd":"'
 const realPath = async ($: EngineInterface, path: string) => (await $.fs.stat(path, { resolve: true }).catch(() => undefined))?.realPath
 
-const title = async ($: EngineInterface) => {
-  const folder = (await $.session.root()).replace(/[^a-zA-Z0-9]/g, '-')
-  const file = await realPath($, `${await claudeDir($)}/projects/${folder}/${await $.session.id()}.jsonl`)
-  if (!file) return undefined
-  let argv = ['grep', '-F', TITLE_RECORD, file]
+// The transcript's lines that hold `text`, in order.
+const search = async ($: EngineInterface, file: string, text: string, name: string) => {
+  let argv = ['grep', '-F', text, file]
   if ((await $.env.get('OS')) === 'Windows_NT') {
-    const pattern = `${await logDir($)}/title-pattern.txt`
-    if (!(await $.fs.exists(pattern))) await $.fs.write(pattern, TITLE_RECORD) // no newline: an empty pattern matches every line
+    const pattern = `${await logDir($)}/${name}-pattern.txt`
+    if (!(await $.fs.exists(pattern))) await $.fs.write(pattern, text) // no newline: an empty pattern matches every line
     argv = ['findstr', '/L', `/G:${await realPath($, pattern)}`, file]
   }
   const found = await $.process.run(argv).catch(() => undefined)
-  for (const line of (found?.stdout ?? '').split(/\r?\n/).reverse()) {
+  return (found?.stdout ?? '').split(/\r?\n/)
+}
+
+// The first (or last) line that parses and gives `pick` a value; a line that only quotes the text gives none.
+const first = (lines: string[], pick: (record: Record<string, unknown>) => unknown) => {
+  for (const line of lines) {
     try {
-      const record = JSON.parse(line)
-      if (record.type === 'custom-title' && typeof record.customTitle === 'string' && record.customTitle !== '') return record.customTitle as string
-    } catch {} // a line that only quotes the text, or none
+      const value = pick(JSON.parse(line))
+      if (typeof value === 'string' && value !== '') return value
+    } catch {}
   }
   return undefined
+}
+const lastTitle = (lines: string[]) => first(lines.reverse(), r => (r.type === 'custom-title' ? r.customTitle : undefined))
+const base = (path: string) => path.split(/[\\/]/).filter(Boolean).at(-1)
+
+// This session's title, at a turn's end.
+// shortcut: looks only in the projects folder named after the session root; a session moved by /cd or a
+// worktree, or a root past 200 characters (hashed), gets no title here (the page may still look it up).
+const title = async ($: EngineInterface) => {
+  const folder = (await $.session.root()).replace(/[^a-zA-Z0-9]/g, '-')
+  const file = await realPath($, `${await claudeDir($)}/projects/${folder}/${await $.session.id()}.jsonl`)
+  return file ? lastTitle(await search($, file, TITLE_RECORD, 'title')) : undefined
+}
+
+// For a session the logs name no title or project for (one begun before they were logged): its transcript,
+// under any projects folder, looked up once and kept in the store, found or not, so a build reads no
+// transcript twice.
+const sessionInfo = async ($: EngineInterface, entries: Entry[]) => {
+  const titled = new Set(entries.filter(e => e.title).map(e => e.session))
+  const placed = new Set(entries.filter(e => e.project !== NO_PROJECT).map(e => e.session))
+  const info: Record<string, SessionInfo> = {}
+  for (const session of new Set(entries.map(e => e.session))) {
+    if (titled.has(session) && placed.has(session)) continue
+    let known = (await $.store.get(`session:${session}`)) as SessionInfo | undefined
+    if (!known) {
+      known = {}
+      const dir = `${await claudeDir($)}/projects`
+      for (const folder of (await $.fs.list(dir).catch(() => [])).filter(e => e.kind === 'dir')) {
+        const file = await realPath($, `${dir}/${folder.name}/${session}.jsonl`)
+        if (!file) continue
+        const cwd = first(await search($, file, CWD_RECORD, 'cwd'), r => r.cwd)
+        known = { title: lastTitle(await search($, file, TITLE_RECORD, 'title')), project: cwd && base(cwd) }
+        break
+      }
+      await $.store.set(`session:${session}`, known)
+    }
+    info[session] = known
+  }
+  return info
 }
 
 const logFile = async ($: EngineInterface, now: number, part: number) =>
@@ -135,7 +176,8 @@ const writeStats = async ($: EngineInterface) => {
   const texts = await Promise.all(files.map(f => $.fs.read(`${dir}/${f.name}`).catch(() => '')))
   const entries = files.flatMap((f, i) => parseLog(f.name.slice(0, 10), texts[i] ?? ''))
   const now = await $.clock.now()
-  const html = statsHtml(entries, day(now), (await sharedLimits($)) ?? [], { ms: now - started, lines: entries.length, files: files.length })
+  const info = await sessionInfo($, entries)
+  const html = statsHtml(entries, day(now), (await sharedLimits($)) ?? [], { ms: now - started, lines: entries.length, files: files.length }, info)
   const file = `${dir}/stats.html`
   await $.fs.write(file, html)
   return file

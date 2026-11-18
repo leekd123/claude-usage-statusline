@@ -34,12 +34,12 @@ Run `/usage-stats` to build `stats.html` from the usage log and open it in your 
 - **A card per metric** for the period: sessions, turns, responses, agent time, cost and tokens, each with its change from the period before.
 - **A chart** of any one of those metrics per day. Point at a day for its figures.
 - **Breakdown**: a table grouped by day, by model, by both, or (neither) into one row for the period. Turns and agent time show only where the rows are not grouped by model, since a turn has no model.
-- **Sessions**: a row per session used in the period, most recently used first, with its title (the start of its id until it has one), project, first and last use in your local time, turns, responses, agent time, tokens and cost.
+- **Sessions**: a row per session used in the period, most recently used first, with its title, project, first and last use in your local time, turns, responses, agent time, tokens and cost.
 
 **What you can change**
 
 - **Period**: Today, 7d, 30d, 90d or All, at the top.
-- **Project**: the sidebar on the left filters everything by project. Lines logged before projects were recorded show under `(no project)`.
+- **Project**: the sidebar on the left filters everything by project. Lines logged before projects were recorded show under `(no project)`, and the desktop app's own folders for a conversation with no folder picked (`scratch-<day>-<id>`) together under `(scratch)`.
 - **Chart metric** and **breakdown grouping**: the buttons above the chart and the Day and Model checkboxes above the breakdown.
 - **Theme**: Light, Dark or System, at the foot of the sidebar.
 - **Auto refresh**: the button at the foot of the sidebar shows the seconds to the next reload and turns it off and on.
@@ -77,6 +77,8 @@ Each main turn's end adds a line with `"turn":true` and no tokens, so the page c
 
 - `ms`: how long the turn took.
 - `title`: the session's title as Claude Code shows it, the last `custom-title` record in its transcript. It is found with `grep` as ponytail does, or with `findstr` on Windows, where Git's `grep` is seldom on the PATH.
+
+A session whose lines carry no title or project (one begun before they were logged) has them looked up once in its transcript, under any projects folder: its last `custom-title` record and the folder its lines' `cwd` names. The result is kept in the mod's store, so no transcript is read twice. A session with no transcript shows the start of its id and `(no project)`.
 
 A file past 3 MiB is left as it is, and the lines go on in `<YYYY-MM-DD>.<session id>.2.jsonl`, then `.3`, and so on. The mod only writes these files and never deletes them.
 

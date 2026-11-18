@@ -118,16 +118,29 @@ const seg = (name: string, items: [string | number, string][]) =>
   `<div class="seg" role="group" aria-label="${name}">${items.map(([v, label]) => `<button data-${name}="${v}">${label}</button>`).join('')}</div>`
 
 // A session that began before projects were logged has lines without one: they take the project its
-// other lines name (the latest), so the session is not split between that project and "(no project)".
-const fillProjects = (entries: Entry[]) => {
+// other lines name (the latest), so the session is not split between that project and "(no project)";
+// a session none of whose lines names one takes the project its transcript gave, if any.
+const fillProjects = (entries: Entry[], info: Record<string, SessionInfo>) => {
   const known: Record<string, { p: string; t: string }> = {}
   for (const e of entries) if (e.project !== NO_PROJECT && e.t >= (known[e.session]?.t ?? '')) known[e.session] = { p: e.project, t: e.t }
-  return entries.map(e => (e.project === NO_PROJECT && known[e.session] ? { ...e, project: known[e.session]!.p } : e))
+  return entries.map(e => {
+    const p = (e.project === NO_PROJECT ? (known[e.session]?.p ?? info[e.session]?.project) : undefined) ?? e.project
+    return { ...e, project: SCRATCH.test(p) ? SCRATCH_PROJECT : p }
+  })
 }
 
-export const statsHtml = (logged: Entry[], today: string, rateLimits: readonly SessionRateLimit[] = [], built?: Built) => {
-  const entries = fillProjects(logged)
+// The desktop app's own folders for a conversation with no folder picked (scratch-<day>-<id>): one each,
+// so they are shown as one project.
+const SCRATCH = /^scratch-\d{4}-\d{2}-\d{2}-[0-9a-z]+$/
+export const SCRATCH_PROJECT = '(scratch)'
+
+// What a session's transcript gave for one the logs name no title or project for.
+export type SessionInfo = { title?: string; project?: string }
+
+export const statsHtml = (logged: Entry[], today: string, rateLimits: readonly SessionRateLimit[] = [], built?: Built, info: Record<string, SessionInfo> = {}) => {
+  const entries = fillProjects(logged, info)
   const data = { today, ...rollup(entries) }
+  for (const [session, i] of Object.entries(info)) if (i.title && !data.titles[session]) data.titles[session] = i.title
   // Projects by their last day of use, the most recent first, each with its all-time tokens.
   const projects = new Map<string, { last: string; tokens: number }>()
   for (const e of entries) {

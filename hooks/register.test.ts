@@ -307,3 +307,58 @@ test('a session begun before projects were logged counts under the project its l
   // Same last day, so by name: "(no project)" first. Session a sits under calc alone.
   expect(page).toContain('<button data-project="(no project)"><span>(no project)</span><small>1</small></button><button data-project="calc"><span>calc</span><small>2</small></button>')
 })
+
+test('a session the logs name no title or project for gets both from its transcript, looked up once', async ($, on) => {
+  const files: Record<string, string> = {}
+  const store: Record<string, unknown> = {}
+  const greps: string[][] = []
+  engine(on, store, [], files)
+  api(on)
+  // The projects folder holds one folder; any other path lists the logs.
+  on('fs.list', (_, e) => ({
+    value: /projects$/.test(e.path)
+      ? [{ name: 'D--work-old-app', kind: 'dir', size: 0, mtimeMs: 0, isLink: false }]
+      : Object.keys(files).map(p => ({ name: p.split(/[\\/]/).at(-1)!, kind: 'file', size: 0, mtimeMs: 0, isLink: false })),
+  }))
+  // grep answers from the transcript: its title records (and a line quoting one), or the lines with a cwd.
+  on('process.run', (_, e) => {
+    greps.push([...e.argv])
+    const stdout = e.argv[2] === '"type":"custom-title"'
+      ? '{"type":"custom-title","customTitle":"Old work"}\n{"type":"user","text":"\\"type\\":\\"custom-title\\""}\n'
+      : '{"type":"user","cwd":"D:\\\\work\\\\old-app"}\n{"type":"assistant","cwd":"D:\\\\work\\\\old-app"}\n'
+    return { value: { exitCode: 0, stdout, stderr: '' } }
+  })
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await drain($.turn.step({ ...step, index: 0 }))
+  const [log] = logs(files)
+  const dir = log!.slice(0, log!.length - `${TODAY}.this.jsonl`.length)
+  // A session from before titles and projects were logged, and its transcript.
+  files[`${dir}2026-11-12.old.jsonl`] = `${JSON.stringify({ t: '2026-11-12T09:00:00.000Z', session: 'old', model: 'm', input: 5, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 })}\n`
+  files[dir.replace(/usage-statusline([\\/])$/, 'projects$1D--work-old-app$1old.jsonl')] = ''
+
+  await $.command.run({ command: 'usage-stats' })
+  const data = JSON.parse(files[`${dir}stats.html`]!.split('<script id="data" type="application/json">')[1]!.split('</script>')[0]!)
+  expect(data.titles.old).toBe('Old work')
+  expect(data.rows.find((r: { s: string }) => r.s === 'old').p).toBe('old-app')
+  expect(store['session:old']).toEqual({ title: 'Old work', project: 'old-app' })
+  expect(store['session:this']).toEqual({}) // its transcript is not there: kept as not found
+  const searched = greps.length
+
+  await $.command.run({ command: 'usage-stats' })
+  expect(greps.slice(searched).every(a => a[0] !== 'grep')).toBe(true) // no transcript read again
+})
+
+test('the desktop app scratch folders show as one project', () => {
+  const line = { day: '2026-11-18', model: 'm', input: 1, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, turn: false, ms: 0, t: '2026-11-18T00:00:00.000Z' }
+  const page = statsHtml(
+    [
+      { ...line, session: 'a', project: 'scratch-2026-11-10-1cd218' },
+      { ...line, session: 'b', project: 'scratch-2026-11-13-e2d38a' },
+      { ...line, session: 'c', project: 'scratch-pad' }, // a folder of that name, not the app's
+    ],
+    '2026-11-18',
+  )
+  const data = JSON.parse(page.split('<script id="data" type="application/json">')[1]!.split('</script>')[0]!)
+  expect(data.rows.map((r: { s: string; p: string }) => [r.s, r.p])).toEqual([['a', '(scratch)'], ['b', '(scratch)'], ['c', 'scratch-pad']])
+  expect(page).toContain('<button data-project="(scratch)"><span>(scratch)</span><small>2</small></button>')
+})
