@@ -291,3 +291,19 @@ test('a title or project with markup in it stays data: it cannot close the data 
   expect(page).not.toContain('<img')
   expect(page).toContain('\\u003c/script>\\u003cimg') // in the data, as JSON reads back
 })
+
+test('a session begun before projects were logged counts under the project its later lines name', () => {
+  const line = { day: '2026-11-18', model: 'm', input: 1, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, turn: false, ms: 0 }
+  const page = statsHtml(
+    [
+      { ...line, session: 'a', project: '(no project)', t: '2026-11-18T00:00:00.000Z' }, // before the reload
+      { ...line, session: 'a', project: 'calc', t: '2026-11-18T04:00:00.000Z' },
+      { ...line, session: 'b', project: '(no project)', t: '2026-11-18T01:00:00.000Z' }, // never named one
+    ],
+    '2026-11-18',
+  )
+  const data = JSON.parse(page.split('<script id="data" type="application/json">')[1]!.split('</script>')[0]!)
+  expect(data.rows.map((r: { s: string; p: string; r: number }) => [r.s, r.p, r.r])).toEqual([['a', 'calc', 2], ['b', '(no project)', 1]])
+  // Same last day, so by name: "(no project)" first. Session a sits under calc alone.
+  expect(page).toContain('<button data-project="(no project)"><span>(no project)</span><small>1</small></button><button data-project="calc"><span>calc</span><small>2</small></button>')
+})

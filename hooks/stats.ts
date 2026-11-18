@@ -117,7 +117,16 @@ export const METRICS: [string, string][] = [['sessions', 'Sessions'], ['turns', 
 const seg = (name: string, items: [string | number, string][]) =>
   `<div class="seg" role="group" aria-label="${name}">${items.map(([v, label]) => `<button data-${name}="${v}">${label}</button>`).join('')}</div>`
 
-export const statsHtml = (entries: Entry[], today: string, rateLimits: readonly SessionRateLimit[] = [], built?: Built) => {
+// A session that began before projects were logged has lines without one: they take the project its
+// other lines name (the latest), so the session is not split between that project and "(no project)".
+const fillProjects = (entries: Entry[]) => {
+  const known: Record<string, { p: string; t: string }> = {}
+  for (const e of entries) if (e.project !== NO_PROJECT && e.t >= (known[e.session]?.t ?? '')) known[e.session] = { p: e.project, t: e.t }
+  return entries.map(e => (e.project === NO_PROJECT && known[e.session] ? { ...e, project: known[e.session]!.p } : e))
+}
+
+export const statsHtml = (logged: Entry[], today: string, rateLimits: readonly SessionRateLimit[] = [], built?: Built) => {
+  const entries = fillProjects(logged)
   const data = { today, ...rollup(entries) }
   // Projects by their last day of use, the most recent first, each with its all-time tokens.
   const projects = new Map<string, { last: string; tokens: number }>()
