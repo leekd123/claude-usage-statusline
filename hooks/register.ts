@@ -97,7 +97,7 @@ const writeStats = async ($: EngineInterface) => {
   const texts = await Promise.all(files.map(f => $.fs.read(`${dir}/${f.name}`).catch(() => '')))
   const entries = files.flatMap((f, i) => parseLog(f.name.slice(0, 10), texts[i] ?? ''))
   const file = `${dir}/stats.html`
-  await $.fs.write(file, statsHtml(entries, day(await $.clock.now())))
+  await $.fs.write(file, statsHtml(entries, day(await $.clock.now()), (await sharedLimits($)) ?? []))
   return file
 }
 

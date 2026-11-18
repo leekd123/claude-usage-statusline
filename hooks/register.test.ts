@@ -128,7 +128,8 @@ test('responses add tokens mid-turn, a measure shares its limits, and today sums
 test('/usage-stats builds the page from every day\'s logs and opens it', async ($, on) => {
   const files: Record<string, string> = {}
   const ran: string[][] = []
-  engine(on, {}, [], files)
+  const store: Record<string, unknown> = {}
+  engine(on, store, [], files)
   api(on)
   on('fs.list', () => ({
     value: Object.keys(files).map(p => ({ name: p.split(/[\\/]/).at(-1)!, kind: 'file', size: 0, mtimeMs: 0, isLink: false })),
@@ -162,6 +163,15 @@ test('/usage-stats builds the page from every day\'s logs and opens it', async (
   expect(page).toContain('<div class="label">All time</div><div class="value">50.0k tok</div><div class="sub">$1.50 · 2 responses · 2 sessions</div>')
   expect(page).toContain('<td>2026-11-01</td><td>1</td><td>1</td><td>1</td><td>2</td><td>3</td><td>4</td><td><b>10</b></td><td>$1.50</td>')
   expect(page).toContain('<td>big</td>')
+  expect(page).toContain('No rate-limit reading yet') // none shared in this store
+
+  // The shared reading shows as one card per window, its reset time for the page's countdown.
+  store.limits = LIMITS
+  await $.command.run({ command: 'usage-stats' })
+  expect(files[`${dir}stats.html`]).toContain(
+    '<div class="card limit" data-pct="4" data-resets="2026-11-13T15:23:00Z"><div class="label">5-hour window</div><div class="value pct">4%</div>',
+  )
+  expect(files[`${dir}stats.html`]).toContain('<div class="label">7-day window</div>')
 })
 
 test('a full log file rolls to the next part, and one that cannot be stat\'ed is never written over', async ($, on) => {

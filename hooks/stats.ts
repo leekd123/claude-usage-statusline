@@ -1,6 +1,8 @@
 // The statistics page: one self-contained HTML file built from the daily JSONL logs.
 // No server and no network: inline CSS and inline SVG.
 
+import type { SessionRateLimit } from 'claude-code'
+
 export type Entry = {
   day: string // the local day, from the file name
   session: string
@@ -97,7 +99,19 @@ const row = (name: string, s: Sum) =>
 const table = (first: string, rows: [string, Sum][]) =>
   `<table><thead><tr><th>${first}</th><th>Responses</th><th>Sessions</th><th>Input</th><th>Output</th><th>Cache read</th><th>Cache write</th><th>Total</th><th>Cost</th></tr></thead><tbody>${rows.map(([n, s]) => row(n, s)).join('')}</tbody></table>`
 
-export const statsHtml = (entries: Entry[], today: string) => {
+const LIMIT_NAME: Record<string, string> = { five_hour: '5-hour window', seven_day: '7-day window', spend_limit: 'Spend limit' }
+
+// One card per rate-limit window, as the last reading any session took. The page's script turns
+// data-resets into a countdown, and shows 0% once the reset has passed, as the status line does.
+const limitCard = (r: SessionRateLimit) =>
+  `<div class="card limit" data-pct="${num(r.percentUsed)}"${r.resetsAt ? ` data-resets="${esc(r.resetsAt)}"` : ''}><div class="label">${esc(LIMIT_NAME[r.kind] ?? r.kind)}</div><div class="value pct">${num(r.percentUsed)}%</div><div class="meter"><i style="width:${Math.min(100, num(r.percentUsed))}%"></i></div><div class="sub reset">${r.resetsAt ? '' : 'no reset time reported'}</div></div>`
+
+const limits = (rateLimits: readonly SessionRateLimit[]) =>
+  rateLimits.length > 0
+    ? `<div class="cards">${rateLimits.map(limitCard).join('')}</div>`
+    : '<div class="note">No rate-limit reading yet. Subscription accounts get one with a session\'s first response.</div>'
+
+export const statsHtml = (entries: Entry[], today: string, rateLimits: readonly SessionRateLimit[] = []) => {
   const byDay = group(entries, e => e.day)
   const within = (days: number) => {
     const from = lastDays(today, days)[0] ?? today
@@ -135,6 +149,7 @@ h1{font-size:20px;margin:0 0 4px}h2{font-size:15px;margin:32px 0 8px}
 .label,.sub{color:var(--dim);font-size:12px}.value{font-size:20px;font-weight:600}
 svg{width:100%;height:auto;display:block}svg text{fill:var(--dim);font-size:10px}
 .bar{fill:var(--bar)}.none{fill:var(--line)}
+.meter{height:6px;border-radius:3px;background:var(--line);margin:6px 0 4px;overflow:hidden}.meter i{display:block;height:100%;background:var(--bar)}
 .scroll{overflow-x:auto}
 table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
 th,td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
@@ -143,6 +158,9 @@ th:first-child,td:first-child{text-align:left}th{color:var(--dim);font-weight:50
 <header><div><h1>Claude usage</h1>
 <div class="note">Built ${esc(today)} from this machine's usage-statusline logs. Cost is the engine's API-price estimate, not what a subscription bills.</div></div>
 <div class="theme" role="group" aria-label="Theme"><button data-theme="light">Light</button><button data-theme="dark">Dark</button><button data-theme="system">System</button></div></header>
+<h2>Rate limits</h2>
+${limits(rateLimits)}
+<h2>Usage</h2>
 <div class="cards">${card('Today', within(1))}${card('Last 7 days', within(7))}${card('Last 30 days', within(30))}${card('All time', all)}</div>
 <h2>Tokens per day, last 30 days</h2>
 ${chart(byDay, today)}
@@ -163,6 +181,22 @@ let saved = 'system'
 try { saved = localStorage.getItem('usage-theme') || 'system' } catch {}
 setTheme(saved)
 for (const b of document.querySelectorAll('.theme button')) b.onclick = () => setTheme(b.dataset.theme)
+
+// Rate limits: time left to each reset, redrawn each minute while the page stays open.
+const pad = n => String(n).padStart(2, '0')
+const drawLimits = () => {
+  for (const card of document.querySelectorAll('.limit[data-resets]')) {
+    const at = new Date(card.dataset.resets), min = Math.round((at - Date.now()) / 60000)
+    const passed = min <= 0, pct = passed ? 0 : Number(card.dataset.pct)
+    card.querySelector('.pct').textContent = pct + '%'
+    card.querySelector('.meter i').style.width = Math.min(100, pct) + '%'
+    const d = Math.floor(min / 1440), left = (d > 0 ? d + 'd ' : '') + Math.floor((min % 1440) / 60) + ':' + pad(min % 60)
+    const when = at.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+    card.querySelector('.reset').textContent = passed ? 'Reset at ' + when + '; the next window starts with the next use' : 'Resets in ' + left + ' · ' + when
+  }
+}
+drawLimits()
+setInterval(drawLimits, 60000)
 
 // Chart tooltip: above the hovered day's column.
 const chart = document.querySelector('.chart'), tip = chart.querySelector('.tip')
