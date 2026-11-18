@@ -183,10 +183,10 @@ export const statsHtml = (entries: Entry[], today: string, rateLimits: readonly 
 :root{color-scheme:light}:root[data-theme=dark]{color-scheme:dark}
 @media (prefers-color-scheme:dark){:root:not([data-theme=light]){color-scheme:dark}}
 body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 system-ui,sans-serif}
-.theme{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
-.theme button{font:inherit;font-size:12px;padding:4px 10px;border:0;background:var(--card);color:var(--dim);cursor:pointer}
+.theme,.refresh{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.theme button,.refresh button{font:inherit;font-size:12px;padding:4px 10px;border:0;background:var(--card);color:var(--dim);cursor:pointer}
 .theme button+button{border-left:1px solid var(--line)}
-.theme button[aria-pressed=true]{background:var(--fg);color:var(--bg)}
+.theme button[aria-pressed=true],.refresh button[aria-pressed=true]{background:var(--fg);color:var(--bg)}
 .chart{position:relative;padding-top:28px}.hit{fill:transparent}.day:hover .hit{fill:var(--hover)}
 .tip{position:absolute;pointer-events:none;background:var(--fg);color:var(--bg);font-size:12px;padding:4px 8px;border-radius:6px;white-space:nowrap;transform:translate(-50%,-100%)}
 main{max-width:1100px;width:100%;box-sizing:border-box;margin:0 auto;padding:24px}
@@ -217,7 +217,8 @@ main>h2:first-child{margin-top:0}
 @media (max-width:720px){.app{grid-template-columns:minmax(0,1fr)}.side{position:static;height:auto;border-right:0;border-bottom:1px solid var(--line)}.side nav{flex-direction:row;flex-wrap:wrap}.side .foot{margin-top:12px}}
 </style></head><body><div class="app">
 <aside class="side"><h1>Claude usage</h1><div class="label">Projects</div><nav aria-label="Projects">${nav}</nav>
-<div class="foot"><a class="repo" href="${REPO}" target="_blank" rel="noopener noreferrer">usage-statusline on GitHub ↗</a><div class="note">Built ${esc(today)} from this machine's usage-statusline logs${built ? ` in ${built.ms} ms, ${built.lines.toLocaleString('en')} lines in ${built.files} files` : ''}. Reloads every minute.</div>
+<div class="foot"><a class="repo" href="${REPO}" target="_blank" rel="noopener noreferrer">usage-statusline on GitHub ↗</a><div class="note">Built ${esc(today)} from this machine's usage-statusline logs${built ? ` in ${built.ms} ms, ${built.lines.toLocaleString('en')} lines in ${built.files} files` : ''}.</div>
+<div class="reload"><span class="refresh"><button aria-pressed="true">Auto refresh</button></span> <span class="note next"></span></div>
 <div class="theme" role="group" aria-label="Theme"><button data-theme="light">Light</button><button data-theme="dark">Dark</button><button data-theme="system">System</button></div></div></aside>
 <main>
 <h2>Rate limits</h2>
@@ -253,9 +254,29 @@ const drawLimits = () => {
 }
 drawLimits()
 
-// The mod rebuilds this file as usage comes in; reloading each minute picks that up. Theme and project are
-// kept in localStorage, and the browser keeps the scroll position.
-setTimeout(() => location.reload(), 60000)
+// Auto refresh: the mod rebuilds this file as usage comes in, and the page reloads each minute to pick
+// that up, counting the seconds down beside the button; the button turns it off and on, kept like the
+// theme. Theme, project and grouping are kept too, and the browser keeps the scroll position.
+const RELOAD_S = 60
+const toggle = document.querySelector('.refresh button'), next = document.querySelector('.next')
+let reload = true, left = RELOAD_S
+try { reload = localStorage.getItem('usage-reload') !== 'off' } catch {}
+const drawReload = () => {
+  toggle.setAttribute('aria-pressed', String(reload))
+  next.textContent = reload ? 'in ' + left + 's' : 'off'
+}
+toggle.onclick = () => {
+  reload = !reload
+  left = RELOAD_S
+  try { localStorage.setItem('usage-reload', reload ? 'on' : 'off') } catch {}
+  drawReload()
+}
+drawReload()
+setInterval(() => {
+  if (!reload) return
+  if (--left <= 0) location.reload()
+  else drawReload()
+}, 1000)
 
 // Project filter: shows that project's view; the choice is kept like the theme, and falls back to
 // every project when the kept one has no logs any more.

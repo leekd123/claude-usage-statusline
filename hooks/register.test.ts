@@ -236,7 +236,7 @@ test('the page is built at session start, and on the minute timer only after a n
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   await clock.advance(0) // the unawaited build settles
   const built = page()!
-  expect(files[built]).toContain('Reloads every minute')
+  expect(files[built]).toContain('<button aria-pressed="true">Auto refresh</button>')
   expect(files[built]).toContain(' in 0 ms, 0 lines in 0 files') // the mock clock stands still while it builds
 
   delete files[built]
