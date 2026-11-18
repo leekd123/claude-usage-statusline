@@ -160,10 +160,12 @@ test('/usage-stats builds the page from every day\'s logs and opens it', async (
   // The module's own spelling; the engine makes the path absolute where it touches the disk.
   expect(text).toBe('Usage statistics opened: /home/u/.claude/usage-statusline/stats.html')
   expect(ran.at(-1)).toEqual(['xdg-open', '/home/u/.claude/usage-statusline/stats.html'])
-  expect(page).toContain('<div class="label">Today</div><div class="value">50.0k tok</div><div class="sub">$0.00 · 1 responses · 1 sessions</div>')
-  expect(page).toContain('<div class="label">All time</div><div class="value">50.0k tok</div><div class="sub">$1.50 · 2 responses · 2 sessions</div>')
-  expect(page).toContain('<td>2026-11-01</td><td>1</td><td>1</td><td>1</td><td>2</td><td>3</td><td>4</td><td><b>10</b></td><td>$1.50</td>')
+  expect(page).toContain('<div class="label">Today</div><div class="value">50.0k tok</div><div class="sub">$0.00 · 1 turns · 1 responses · 1 sessions</div>') // the main turn's end, not the subagent's
+  expect(page).toContain('<div class="label">All time</div><div class="value">50.0k tok</div><div class="sub">$1.50 · 1 turns · 2 responses · 2 sessions</div>')
+  expect(page).toContain('<td>2026-11-01</td><td>0</td><td>1</td><td>1</td><td>1</td><td>2</td><td>3</td><td>4</td><td><b>10</b></td><td>$1.50</td>')
   expect(page).toContain('<td>big</td>')
+  expect(page).toContain('<th>Model</th><th>Responses</th>') // turns have no model: no Turns column there
+  expect(page).not.toContain('<td>?</td>') // and no row for the turn lines
   expect(page).toContain('No rate-limit reading yet') // none shared in this store
   expect(page).toContain('<a class="repo" href="https://github.com/leekd123/claude-usage-statusline"')
 
@@ -173,7 +175,7 @@ test('/usage-stats builds the page from every day\'s logs and opens it', async (
     '<button data-project=""><span>All projects</span><small>50.0k</small></button><button data-project="alpha"><span>alpha</span><small>50.0k</small></button><button data-project="(no project)"><span>(no project)</span><small>10</small></button>',
   )
   const alpha = page!.split('<section class="view" data-project="alpha" hidden>')[1]!.split('</section>')[0]!
-  expect(alpha).toContain('<div class="label">All time</div><div class="value">50.0k tok</div><div class="sub">$0.00 · 1 responses · 1 sessions</div>')
+  expect(alpha).toContain('<div class="label">All time</div><div class="value">50.0k tok</div><div class="sub">$0.00 · 1 turns · 1 responses · 1 sessions</div>')
   expect(alpha).not.toContain('<td>big</td>')
 
   // The shared reading shows as one card per window, its reset time for the page's countdown.

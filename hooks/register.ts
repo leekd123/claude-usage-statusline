@@ -85,6 +85,9 @@ const logDir = async ($: EngineInterface) => {
   return `${dir}/usage-statusline`
 }
 
+// The session root's folder name, as ponytail names a project.
+const project = async ($: EngineInterface) => (await $.session.root()).split(/[\\/]/).filter(Boolean).at(-1) ?? ''
+
 const logFile = async ($: EngineInterface, now: number, part: number) =>
   `${await logDir($)}/${day(now)}.${await $.session.id()}${part > 1 ? `.${part}` : ''}.jsonl`
 
@@ -172,7 +175,7 @@ export const register: Register = on => {
       await log($, {
         t: new Date(now).toISOString(),
         session: await $.session.id(),
-        project: (await $.session.root()).split(/[\\/]/).filter(Boolean).at(-1) ?? '', // the root folder's name, as ponytail names it
+        project: await project($),
         agent: e.agentId,
         model: e.model,
         input: u.input_tokens,
@@ -190,7 +193,12 @@ export const register: Register = on => {
   // After each main turn the page is rebuilt, so an open stats.html shows the new figures on a refresh.
   on('turn.complete', async ($, e, next) => {
     const ran = await next(e)
-    if (e.agentId === undefined) await writeStats($).catch(() => {})
+    if (e.agentId === undefined) {
+      // One line per main turn, however it ended, so the page can count turns beside responses.
+      const now = await $.clock.now()
+      await log($, { t: new Date(now).toISOString(), session: await $.session.id(), project: await project($), turn: true }, now)
+      await writeStats($).catch(() => {})
+    }
     return ran
   })
 

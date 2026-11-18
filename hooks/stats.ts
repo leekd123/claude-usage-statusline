@@ -13,11 +13,12 @@ export type Entry = {
   cacheRead: number
   cacheWrite: number
   cost: number
+  turn: boolean // a main turn's end, not a response: counts a turn and nothing else
 }
 
-type Sum = { responses: number; sessions: Set<string>; input: number; output: number; cacheRead: number; cacheWrite: number; cost: number }
+type Sum = { responses: number; turns: number; sessions: Set<string>; input: number; output: number; cacheRead: number; cacheWrite: number; cost: number }
 
-const empty = (): Sum => ({ responses: 0, sessions: new Set(), input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 })
+const empty = (): Sum => ({ responses: 0, turns: 0, sessions: new Set(), input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 })
 const total = (s: Sum) => s.input + s.output + s.cacheRead + s.cacheWrite
 const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0)
 
@@ -41,6 +42,7 @@ export const parseLog = (day: string, text: string): Entry[] =>
         cacheRead: num(o.cacheRead),
         cacheWrite: num(o.cacheWrite),
         cost: num(o.cost),
+        turn: o.turn === true,
       }]
     } catch {
       return []
@@ -48,8 +50,12 @@ export const parseLog = (day: string, text: string): Entry[] =>
   })
 
 const add = (s: Sum, e: Entry) => {
-  s.responses++
   s.sessions.add(e.session)
+  if (e.turn) {
+    s.turns++
+    return
+  }
+  s.responses++
   s.input += e.input
   s.output += e.output
   s.cacheRead += e.cacheRead
@@ -80,7 +86,7 @@ const lastDays = (today: string, days: number) =>
   })
 
 const card = (label: string, s: Sum) =>
-  `<div class="card"><div class="label">${label}</div><div class="value">${fmt(total(s))} tok</div><div class="sub">${usd(s.cost)} · ${s.responses} responses · ${s.sessions.size} sessions</div></div>`
+  `<div class="card"><div class="label">${label}</div><div class="value">${fmt(total(s))} tok</div><div class="sub">${usd(s.cost)} · ${s.turns} turns · ${s.responses} responses · ${s.sessions.size} sessions</div></div>`
 
 // Daily tokens over the last 30 days as bars. Each day's whole column takes the hover, so a day with a
 // 1px bar is as easy to point at as a tall one; the tooltip is drawn by the page's script from data-tip.
@@ -93,18 +99,19 @@ const chart = (byDay: Map<string, Sum>, today: string) => {
       const s = byDay.get(d) ?? empty()
       const bh = Math.round((total(s) / max) * h)
       const x = i * (w + gap)
-      const tip = `${d} · ${fmt(total(s))} tok · ${usd(s.cost)} · ${s.responses} responses`
+      const tip = `${d} · ${fmt(total(s))} tok · ${usd(s.cost)} · ${s.turns} turns · ${s.responses} responses`
       return `<g class="day" data-tip="${tip}" aria-label="${tip}"><rect class="hit" x="${x - gap / 2}" y="0" width="${w + gap}" height="${h}"/><rect x="${x}" y="${h - bh}" width="${w}" height="${Math.max(bh, 1)}" rx="3" class="${bh ? 'bar' : 'none'}"/>${i % 5 === 4 || i === 29 ? `<text x="${x + w / 2}" y="${h + 16}" text-anchor="middle">${d.slice(5)}</text>` : ''}</g>`
     })
     .join('')
   return `<div class="chart"><svg viewBox="0 0 ${30 * (w + gap)} ${h + 22}" role="img" aria-label="Tokens per day, last 30 days">${bars}</svg><div class="tip" hidden></div></div>`
 }
 
-const row = (name: string, s: Sum) =>
-  `<tr><td>${esc(name)}</td><td>${s.responses}</td><td>${s.sessions.size}</td><td>${fmt(s.input)}</td><td>${fmt(s.output)}</td><td>${fmt(s.cacheRead)}</td><td>${fmt(s.cacheWrite)}</td><td><b>${fmt(total(s))}</b></td><td>${usd(s.cost)}</td></tr>`
+// A turn has no model, so the by-model table leaves the Turns column out.
+const row = (name: string, s: Sum, turns: boolean) =>
+  `<tr><td>${esc(name)}</td>${turns ? `<td>${s.turns}</td>` : ''}<td>${s.responses}</td><td>${s.sessions.size}</td><td>${fmt(s.input)}</td><td>${fmt(s.output)}</td><td>${fmt(s.cacheRead)}</td><td>${fmt(s.cacheWrite)}</td><td><b>${fmt(total(s))}</b></td><td>${usd(s.cost)}</td></tr>`
 
-const table = (first: string, rows: [string, Sum][]) =>
-  `<table><thead><tr><th>${first}</th><th>Responses</th><th>Sessions</th><th>Input</th><th>Output</th><th>Cache read</th><th>Cache write</th><th>Total</th><th>Cost</th></tr></thead><tbody>${rows.map(([n, s]) => row(n, s)).join('')}</tbody></table>`
+const table = (first: string, rows: [string, Sum][], turns = true) =>
+  `<table><thead><tr><th>${first}</th>${turns ? '<th>Turns</th>' : ''}<th>Responses</th><th>Sessions</th><th>Input</th><th>Output</th><th>Cache read</th><th>Cache write</th><th>Total</th><th>Cost</th></tr></thead><tbody>${rows.map(([n, s]) => row(n, s, turns)).join('')}</tbody></table>`
 
 const LIMIT_NAME: Record<string, string> = { five_hour: '5-hour window', seven_day: '7-day window', spend_limit: 'Spend limit' }
 
@@ -130,7 +137,7 @@ const view = (key: string, entries: Entry[], today: string) => {
   }
   const all = empty()
   for (const e of entries) add(all, e)
-  const byModel = [...group(entries, e => e.model)].sort((a, b) => total(b[1]) - total(a[1]))
+  const byModel = [...group(entries.filter(e => !e.turn), e => e.model)].sort((a, b) => total(b[1]) - total(a[1]))
   const days = [...byDay].sort((a, b) => b[0].localeCompare(a[0]))
   return `<section class="view" data-project="${esc(key)}"${key ? ' hidden' : ''}>
 <h2>${key ? esc(key) : 'All projects'}</h2>
@@ -138,7 +145,7 @@ const view = (key: string, entries: Entry[], today: string) => {
 <h2>Tokens per day, last 30 days</h2>
 ${chart(byDay, today)}
 <h2>By model</h2>
-<div class="scroll">${table('Model', byModel)}</div>
+<div class="scroll">${table('Model', byModel, false)}</div>
 <h2>By day</h2>
 <div class="scroll">${table('Day', days)}</div>
 </section>`
