@@ -1,4 +1,4 @@
-import { expect, test } from 'claude-code/testing'
+import { expect, mock, test } from 'claude-code/testing'
 import type { On } from 'claude-code/testing'
 
 import { count, day, format, left, limit, ROLL_BYTES } from './register'
@@ -29,6 +29,8 @@ const api = (on: On) =>
     }
   })
 const step = { turnId: 't', model: 'm', messageCount: 1 }
+// The log files written, without the stats.html each session start builds.
+const logs = (files: Record<string, string>) => Object.keys(files).filter(p => p.endsWith('.jsonl'))
 
 // A file named in `broken` is there but cannot be stat'ed.
 const engine = (
@@ -37,6 +39,7 @@ const engine = (
   lines: (string | undefined)[],
   files: Record<string, string> = {},
   broken = new Set<string>(),
+  clock = true, // false: the test brings mock.clock, whose timers it can run
 ) => {
   on('env.get', (_, e) => ({ value: e.name === 'HOME' ? '/home/u' : undefined }))
   on('fs.stat', (_, e) => {
@@ -51,8 +54,10 @@ const engine = (
   on('session.id', () => ({ value: 'this' }))
   on('session.root', () => ({ value: '/work/alpha' }))
   on('ui.status', (_, e) => (lines.push(e.text), { value: undefined }))
-  on('clock.now', () => ({ value: NOW }))
-  on('clock.every', () => ({ value: undefined }))
+  if (clock) {
+    on('clock.now', () => ({ value: NOW }))
+    on('clock.every', () => ({ value: undefined }))
+  }
   on('store.get', (_, e) => ({ value: store[e.key] }))
   on('store.set', (_, e) => ((store[e.key] = e.value), { value: undefined }))
   on('store.delete', (_, e) => (delete store[e.key], { value: undefined }))
@@ -116,7 +121,7 @@ test('responses add tokens mid-turn, a measure shares its limits, and today sums
   ])
 
   // One line per response that reported usage, in this day's file for this session.
-  const [[path, text]] = Object.entries(files)
+  const [[path, text]] = Object.entries(files).filter(([p]) => p.endsWith('.jsonl'))
   expect(path.replaceAll('\\', '/')).toEndWith(`/home/u/.claude/usage-statusline/${TODAY}.this.jsonl`) // the engine makes it absolute
   const log = text.trim().split('\n').map(l => JSON.parse(l))
   const tokens = { input: 1_000, output: 2_000, cacheRead: 40_000, cacheWrite: 7_000 }
@@ -140,7 +145,7 @@ test('/usage-stats builds the page from every day\'s logs and opens it', async (
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
 
   await drain($.turn.step({ ...step, index: 0 })) // today: 50k tokens, model m
-  const [today] = Object.keys(files)
+  const [today] = logs(files)
   const dir = today.slice(0, today.length - `${TODAY}.this.jsonl`.length)
   // An earlier day, another session and model, with a line cut off mid-write.
   files[`${dir}2026-11-01.other.jsonl`] =
@@ -148,6 +153,7 @@ test('/usage-stats builds the page from every day\'s logs and opens it', async (
 
   // A main turn's end rebuilds the page without opening it; a subagent's does nothing.
   const done = { answer: '', durationMs: 1, isAborted: false, turnId: 't', reason: 'answer' as const }
+  delete files[`${dir}stats.html`] // the one session start built
   await $.turn.complete({ ...done, agentId: 'a1' })
   expect(files[`${dir}stats.html`]).toBeUndefined()
   await $.turn.complete(done)
@@ -196,17 +202,42 @@ test('a full log file rolls to the next part, and one that cannot be stat\'ed is
   const lineCount = (path: string) => files[path].trim().split('\n').length
 
   await drain($.turn.step({ ...step, index: 0 }))
-  const [first] = Object.keys(files)
+  const [first] = logs(files)
   files[first] = 'x'.repeat(ROLL_BYTES + 1) // stands in for a day of lines
   await drain($.turn.step({ ...step, index: 0 }))
   await drain($.turn.step({ ...step, index: 0 }))
 
   const second = first.replace(/\.jsonl$/, '.2.jsonl')
-  expect(Object.keys(files)).toEqual([first, second])
+  expect(logs(files)).toEqual([first, second])
   expect(files[first]).toBe('x'.repeat(ROLL_BYTES + 1)) // left as it was
   expect(lineCount(second)).toBe(2)
 
   broken.add(second)
   await drain($.turn.step({ ...step, index: 0 }))
   expect(lineCount(second)).toBe(2) // the line is lost, the file kept
+})
+
+test('the page is built at session start, and on the minute timer only after a new line', async ($, on) => {
+  const files: Record<string, string> = {}
+  engine(on, {}, [], files, undefined, false)
+  api(on)
+  const clock = mock.clock(on, { now: NOW })
+  on('fs.list', () => ({
+    value: Object.keys(files).map(p => ({ name: p.split(/[\\/]/).at(-1)!, kind: 'file', size: 0, mtimeMs: 0, isLink: false })),
+  }))
+  const page = () => Object.keys(files).find(p => p.endsWith('stats.html'))
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await clock.advance(0) // the unawaited build settles
+  const built = page()!
+  expect(files[built]).toContain('Reloads every minute')
+  expect(files[built]).toContain(' in 0 ms, 0 lines in 0 files') // the mock clock stands still while it builds
+
+  delete files[built]
+  await clock.advance(60_000)
+  expect(page()).toBeUndefined() // nothing logged since: no rebuild
+
+  await drain($.turn.step({ ...step, index: 0 }))
+  await clock.advance(60_000)
+  expect(files[built]).toContain(' in 0 ms, 1 lines in 1 files') // the new line, mid-turn
 })

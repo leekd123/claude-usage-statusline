@@ -151,7 +151,10 @@ ${chart(byDay, today)}
 </section>`
 }
 
-export const statsHtml = (entries: Entry[], today: string, rateLimits: readonly SessionRateLimit[] = []) => {
+// How the page was built: the time it took and what it read, to tell when reading every log gets slow.
+export type Built = { ms: number; lines: number; files: number }
+
+export const statsHtml = (entries: Entry[], today: string, rateLimits: readonly SessionRateLimit[] = [], built?: Built) => {
   // Projects by their last day of use, the most recent first.
   const last = (list: Entry[]) => list.reduce((d, e) => (e.day > d ? e.day : d), '')
   const projects = [...group(entries, e => e.project)]
@@ -204,7 +207,7 @@ main>h2:first-child{margin-top:0}
 @media (max-width:720px){.app{grid-template-columns:minmax(0,1fr)}.side{position:static;height:auto;border-right:0;border-bottom:1px solid var(--line)}.side nav{flex-direction:row;flex-wrap:wrap}.side .foot{margin-top:12px}}
 </style></head><body><div class="app">
 <aside class="side"><h1>Claude usage</h1><div class="label">Projects</div><nav aria-label="Projects">${nav}</nav>
-<div class="foot"><a class="repo" href="${REPO}" target="_blank" rel="noopener noreferrer">usage-statusline on GitHub ↗</a><div class="note">Built ${esc(today)} from this machine's usage-statusline logs</div>
+<div class="foot"><a class="repo" href="${REPO}" target="_blank" rel="noopener noreferrer">usage-statusline on GitHub ↗</a><div class="note">Built ${esc(today)} from this machine's usage-statusline logs${built ? ` in ${built.ms} ms, ${built.lines.toLocaleString('en')} lines in ${built.files} files` : ''}. Reloads every minute.</div>
 <div class="theme" role="group" aria-label="Theme"><button data-theme="light">Light</button><button data-theme="dark">Dark</button><button data-theme="system">System</button></div></div></aside>
 <main>
 <h2>Rate limits</h2>
@@ -239,7 +242,10 @@ const drawLimits = () => {
   }
 }
 drawLimits()
-setInterval(drawLimits, 60000)
+
+// The mod rebuilds this file as usage comes in; reloading each minute picks that up. Theme and project are
+// kept in localStorage, and the browser keeps the scroll position.
+setTimeout(() => location.reload(), 60000)
 
 // Project filter: shows that project's view; the choice is kept like the theme, and falls back to
 // every project when the kept one has no logs any more.

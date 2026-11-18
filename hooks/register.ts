@@ -72,6 +72,8 @@ let cost = 0
 let costLogged = 0
 // Writes run one at a time: each reads the file and writes it back whole ($.fs has no append).
 let writing: Promise<unknown> = Promise.resolve()
+// A line was logged since stats.html was last built, so the minute timer has something to rebuild.
+let dirty = false
 
 // $.fs.read refuses a file over 4 MiB, so a file this big is left as it is and the lines go on in the next part.
 export const ROLL_BYTES = 3 * 1024 * 1024
@@ -91,16 +93,23 @@ const project = async ($: EngineInterface) => (await $.session.root()).split(/[\
 const logFile = async ($: EngineInterface, now: number, part: number) =>
   `${await logDir($)}/${day(now)}.${await $.session.id()}${part > 1 ? `.${part}` : ''}.jsonl`
 
-// Builds stats.html from every day's logs, next to them: a plain file a browser refresh rereads.
-// shortcut: reads every log each time, fine for months of logs; keep per-day sums if it ever gets slow.
+// Builds stats.html from every day's logs, next to them: a plain file the page's own reload rereads.
+// Built at session start (a /reload-plugins too), at each main turn's end, and on the minute timer
+// when a line was logged since; the page shows how long a build took and over how many lines.
+// shortcut: reads every log on each build, up to once a minute per busy session; when the page's
+// "Built in N ms" grows past a second or so, keep per-day sums and read only today's logs.
 const writeStats = async ($: EngineInterface) => {
   await writing // this turn's lines first
+  dirty = false
+  const started = await $.clock.now()
   const dir = await logDir($)
   const files = (await $.fs.list(dir).catch(() => [])).filter(f => f.kind === 'file' && f.name.endsWith('.jsonl'))
   const texts = await Promise.all(files.map(f => $.fs.read(`${dir}/${f.name}`).catch(() => '')))
   const entries = files.flatMap((f, i) => parseLog(f.name.slice(0, 10), texts[i] ?? ''))
+  const now = await $.clock.now()
+  const html = statsHtml(entries, day(now), (await sharedLimits($)) ?? [], { ms: now - started, lines: entries.length, files: files.length })
   const file = `${dir}/stats.html`
-  await $.fs.write(file, statsHtml(entries, day(await $.clock.now()), (await sharedLimits($)) ?? []))
+  await $.fs.write(file, html)
   return file
 }
 
@@ -122,7 +131,9 @@ const log = ($: EngineInterface, entry: Record<string, unknown>, now: number) =>
       if (!stat && (await $.fs.exists(path))) throw new Error(`cannot stat ${path}`)
       if ((stat?.size ?? 0) > ROLL_BYTES) continue
       const text = stat ? await $.fs.read(path) : '' // missing: the part's first line
-      return $.fs.write(path, `${text}${JSON.stringify(entry)}\n`)
+      await $.fs.write(path, `${text}${JSON.stringify(entry)}\n`)
+      dirty = true
+      return
     }
   }).catch(() => {})) // a failed write loses one line, never the status line or the file
 
@@ -155,8 +166,14 @@ export const register: Register = on => {
     // An earlier reading of this session's seeds the shared one only where none is kept yet.
     if (usage.rateLimits.length > 0 && !(await sharedLimits($))) await $.store.set('limits', usage.rateLimits)
     await show($, now)
-    // Each minute: the countdown, and what other sessions have added to today and to the limits.
-    $.clock.every(60_000, async () => show($, await $.clock.now()))
+    // The page too, so a /reload-plugins shows new code's page at once; not awaited, it reads every log.
+    void writeStats($).catch(() => {})
+    // Each minute: the countdown, what other sessions have added to today and to the limits, and the
+    // page when this session logged a line since its last build, so a long turn shows up mid-turn.
+    $.clock.every(60_000, async () => {
+      await show($, await $.clock.now())
+      if (dirty) await writeStats($).catch(() => {})
+    })
     return ran
   })
 
