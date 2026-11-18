@@ -106,12 +106,12 @@ const chart = (byDay: Map<string, Sum>, today: string) => {
   return `<div class="chart"><svg viewBox="0 0 ${30 * (w + gap)} ${h + 22}" role="img" aria-label="Tokens per day, last 30 days">${bars}</svg><div class="tip" hidden></div></div>`
 }
 
-// A turn has no model, so the by-model table leaves the Turns column out.
-const row = (name: string, s: Sum, turns: boolean) =>
-  `<tr><td>${esc(name)}</td>${turns ? `<td>${s.turns}</td>` : ''}<td>${s.responses}</td><td>${s.sessions.size}</td><td>${fmt(s.input)}</td><td>${fmt(s.output)}</td><td>${fmt(s.cacheRead)}</td><td>${fmt(s.cacheWrite)}</td><td><b>${fmt(total(s))}</b></td><td>${usd(s.cost)}</td></tr>`
+// A turn has no model, so a table grouped by model leaves the Turns column out.
+const row = (names: string[], s: Sum, turns: boolean) =>
+  `<tr>${names.map(n => `<td>${esc(n)}</td>`).join('')}${turns ? `<td>${s.turns}</td>` : ''}<td>${s.responses}</td><td>${s.sessions.size}</td><td>${fmt(s.input)}</td><td>${fmt(s.output)}</td><td>${fmt(s.cacheRead)}</td><td>${fmt(s.cacheWrite)}</td><td><b>${fmt(total(s))}</b></td><td>${usd(s.cost)}</td></tr>`
 
-const table = (first: string, rows: [string, Sum][], turns = true) =>
-  `<table><thead><tr><th>${first}</th>${turns ? '<th>Turns</th>' : ''}<th>Responses</th><th>Sessions</th><th>Input</th><th>Output</th><th>Cache read</th><th>Cache write</th><th>Total</th><th>Cost</th></tr></thead><tbody>${rows.map(([n, s]) => row(n, s, turns)).join('')}</tbody></table>`
+const table = (heads: string[], rows: [string[], Sum][], turns = true) =>
+  `<table${heads.length > 1 ? ' class="two"' : ''}><thead><tr>${heads.map(h => `<th>${h}</th>`).join('')}${turns ? '<th>Turns</th>' : ''}<th>Responses</th><th>Sessions</th><th>Input</th><th>Output</th><th>Cache read</th><th>Cache write</th><th>Total</th><th>Cost</th></tr></thead><tbody>${rows.map(([names, s]) => row(names, s, turns)).join('')}</tbody></table>`
 
 const LIMIT_NAME: Record<string, string> = { five_hour: '5-hour window', seven_day: '7-day window', spend_limit: 'Spend limit' }
 
@@ -137,17 +137,26 @@ const view = (key: string, entries: Entry[], today: string) => {
   }
   const all = empty()
   for (const e of entries) add(all, e)
-  const byModel = [...group(entries.filter(e => !e.turn), e => e.model)].sort((a, b) => total(b[1]) - total(a[1]))
+  // One table per way of grouping; the checkboxes above them show the one checked. Turn lines have no
+  // model, so they stay out of any grouping by model.
+  const responses = entries.filter(e => !e.turn)
+  const byModel = [...group(responses, e => e.model)].sort((a, b) => total(b[1]) - total(a[1]))
   const days = [...byDay].sort((a, b) => b[0].localeCompare(a[0]))
+  const byDayModel = [...group(responses, e => `${e.day} ${e.model}`)]
+    .map(([k, s]) => [[k.slice(0, 10), k.slice(11)], s] as [string[], Sum]) // the day is always YYYY-MM-DD
+    .sort((a, b) => b[0][0]!.localeCompare(a[0][0]!) || total(b[1]) - total(a[1]))
+  const breakdown = (by: string, html: string) => `<div class="scroll breakdown" data-by="${by}"${by === 'day' ? '' : ' hidden'}>${html}</div>`
   return `<section class="view" data-project="${esc(key)}"${key ? ' hidden' : ''}>
 <h2>${key ? esc(key) : 'All projects'}</h2>
 <div class="cards">${card('Today', within(1))}${card('Last 7 days', within(7))}${card('Last 30 days', within(30))}${card('All time', all)}</div>
 <h2>Tokens per day, last 30 days</h2>
 ${chart(byDay, today)}
-<h2>By model</h2>
-<div class="scroll">${table('Model', byModel, false)}</div>
-<h2>By day</h2>
-<div class="scroll">${table('Day', days)}</div>
+<h2>Breakdown</h2>
+<div class="group">Group by <label><input type="checkbox" data-group="day" checked> Day</label><label><input type="checkbox" data-group="model"> Model</label></div>
+${breakdown('day,model', table(['Day', 'Model'], byDayModel, false))}
+${breakdown('day', table(['Day'], days.map(([d, s]) => [[d], s]), true))}
+${breakdown('model', table(['Model'], byModel.map(([m, s]) => [[m], s]), false))}
+${breakdown('', table(['Period'], [[['All time'], all]], true))}
 </section>`
 }
 
@@ -192,7 +201,8 @@ svg{width:100%;height:auto;display:block}svg text{fill:var(--dim);font-size:10px
 .scroll{overflow-x:auto}
 table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
 th,td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
-th:first-child,td:first-child{text-align:left}th{color:var(--dim);font-weight:500}
+th:first-child,td:first-child,.two th:nth-child(2),.two td:nth-child(2){text-align:left}
+.group{display:flex;gap:14px;align-items:center;color:var(--dim);font-size:12px;margin-bottom:6px}.group label{display:inline-flex;gap:4px;align-items:center;color:var(--fg);cursor:pointer}th{color:var(--dim);font-weight:500}
 .app{display:grid;grid-template-columns:220px minmax(0,1fr);min-height:100vh}
 .side{position:sticky;top:0;height:100vh;box-sizing:border-box;overflow-y:auto;display:flex;flex-direction:column;padding:20px 12px;border-right:1px solid var(--line);background:var(--card)}
 .side h1{font-size:16px;margin:0 8px 20px}
@@ -259,6 +269,21 @@ let project = ''
 try { project = localStorage.getItem('usage-project') || '' } catch {}
 setProject(project)
 for (const b of document.querySelectorAll('.side nav button')) b.onclick = () => setProject(b.dataset.project)
+
+// Breakdown: the table for the checked groupings (both, one, or none for a single total row), in every
+// project's view at once; the choice is kept like the theme.
+const GROUPS = ['day', 'model']
+let groups = { day: true, model: false }
+const setGroups = on => {
+  groups = on
+  const by = GROUPS.filter(g => on[g]).join(',')
+  for (const t of document.querySelectorAll('.breakdown')) t.hidden = t.dataset.by !== by
+  for (const c of document.querySelectorAll('[data-group]')) c.checked = !!on[c.dataset.group]
+  try { localStorage.setItem('usage-groups', JSON.stringify(on)) } catch {}
+}
+try { groups = JSON.parse(localStorage.getItem('usage-groups')) || groups } catch {}
+setGroups(groups)
+for (const c of document.querySelectorAll('[data-group]')) c.onchange = () => setGroups({ ...groups, [c.dataset.group]: c.checked })
 
 // Chart tooltips: above the hovered day's column.
 for (const chart of document.querySelectorAll('.chart')) {

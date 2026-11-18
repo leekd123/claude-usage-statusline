@@ -170,6 +170,12 @@ test('/usage-stats builds the page from every day\'s logs and opens it', async (
   expect(page).toContain('<div class="label">All time</div><div class="value">50.0k tok</div><div class="sub">$1.50 · 1 turns · 2 responses · 2 sessions</div>')
   expect(page).toContain('<td>2026-11-01</td><td>0</td><td>1</td><td>1</td><td>1</td><td>2</td><td>3</td><td>4</td><td><b>10</b></td><td>$1.50</td>')
   expect(page).toContain('<td>big</td>')
+  // One table per grouping, Day alone shown until the checkboxes say otherwise; by day and model, a row per pair.
+  expect(page).toContain('<div class="scroll breakdown" data-by="day,model" hidden><table class="two"><thead><tr><th>Day</th><th>Model</th><th>Responses</th>')
+  expect(page).toContain('<tr><td>2026-11-01</td><td>big</td><td>1</td><td>1</td><td>1</td><td>2</td><td>3</td><td>4</td><td><b>10</b></td><td>$1.50</td></tr>')
+  expect(page).toContain('<div class="scroll breakdown" data-by="day"><table><thead><tr><th>Day</th><th>Turns</th>')
+  expect(page).toContain('<div class="scroll breakdown" data-by="model" hidden>')
+  expect(page).toContain('<tr><td>All time</td><td>1</td><td>2</td><td>2</td>') // no grouping: one row, turns included
   expect(page).toContain('<th>Model</th><th>Responses</th>') // turns have no model: no Turns column there
   expect(page).not.toContain('<td>?</td>') // and no row for the turn lines
   expect(page).toContain('No rate-limit reading yet') // none shared in this store
