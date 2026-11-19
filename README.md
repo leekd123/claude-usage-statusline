@@ -26,7 +26,7 @@ A Claude Code mod that shows your usage in the status line under the prompt, kee
 
 ## Statistics page
 
-Run `/usage-stats` to build `stats.html` from the usage log and open it in your browser. It is one file, with no server or network.
+Run `/usage-stats` to build the page from the usage log and open it in your browser. It is two files side by side, with no server or network: `stats.html`, the page itself, and `data.js`, the figures it draws.
 
 **What it shows**
 
@@ -42,15 +42,16 @@ Run `/usage-stats` to build `stats.html` from the usage log and open it in your 
 - **Project**: the sidebar on the left filters everything by project. Lines logged before projects were recorded show under `(no project)`, and the desktop app's own folders for a conversation with no folder picked (`scratch-<day>-<id>`) and for the sessions it starts ahead of time (`~/.claude/spares/spare-<id>`) together under `(scratch)`.
 - **Chart metric** and **breakdown grouping**: the buttons above the chart and the Day and Model checkboxes above the breakdown.
 - **Theme**: Light, Dark or System, at the foot of the sidebar.
-- **Auto refresh**: the button at the foot of the sidebar turns it off and on, the list beside it sets how often (15s, 30s, 1m, 5m or 15m; 1m unless chosen), and the time to the next reload shows next to them.
+- **Auto refresh**: the button at the foot of the sidebar turns it off and on, the list beside it sets how often (5s, 10s, 15s, 30s, 1m, 5m or 15m; 1m unless chosen), and the time to the next reload shows next to them.
 
 The browser remembers every choice. The sidebar's foot also links to this repository on GitHub.
 
 **When it updates**
 
-- The mod rebuilds the page when a session starts (`/reload-plugins` too), at the end of every turn, and each minute if a response was logged since. A long turn shows up while it runs.
-- The page reloads itself (each minute unless you choose otherwise), so keeping it open or bookmarking it is enough.
-- The mod puts the log into the page summed per day, project, session and model, and the page's own script draws from that. Changing a choice needs no rebuild.
+- The mod rebuilds `data.js` when a session starts (`/reload-plugins` too), at the end of every turn, and each minute if a response was logged since. A long turn shows up while it runs.
+- It writes `stats.html` only when a session starts (or when the file is missing). After a change to the page, `/reload-plugins` in one session puts the new page in place, and sessions still on older code leave it there, writing only `data.js`. Only a change to what `data.js` holds needs every session reloaded; until then the page says so instead of drawing.
+- The page loads `data.js` again by itself (each minute unless you choose otherwise) and redraws in place, so keeping it open or bookmarking it is enough. It reloads whole only when `data.js` names a newer `stats.html`.
+- `data.js` holds the log summed per day, project, session and model, and the page's own script draws from that. Changing a choice needs no rebuild.
 - The sidebar's foot shows how long the last build took and how many lines it read. Every build reads the whole log, so if that time grows past a second or so, the build is due to keep per-day sums instead.
 
 ## Usage log

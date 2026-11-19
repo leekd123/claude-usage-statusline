@@ -1,6 +1,6 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, SessionRateLimit, SessionUsage } from 'claude-code'
-import { NO_PROJECT, parseLog, statsHtml } from './stats'
+import { NO_PROJECT, parseLog, statsData, statsPage, statsScript } from './stats'
 import type { Entry, SessionInfo } from './stats'
 
 const LABEL: Record<string, string> = { five_hour: '5h', seven_day: '7d', spend_limit: 'spend' }
@@ -167,12 +167,14 @@ const sessionInfo = async ($: EngineInterface, entries: Entry[]) => {
 const logFile = async ($: EngineInterface, now: number, part: number) =>
   `${await logDir($)}/${day(now)}.${await $.session.id()}${part > 1 ? `.${part}` : ''}.jsonl`
 
-// Builds stats.html from every day's logs, next to them: a plain file the page's own reload rereads.
+// Builds data.js from every day's logs, next to them, for stats.html to load on each of its reloads.
 // Built at session start (a /reload-plugins too), at each main turn's end, and on the minute timer
 // when a line was logged since; the page shows how long a build took and over how many lines.
+// stats.html itself, the page's code, is written only at session start (or when it is missing), so a
+// session still on older code never puts its older page back: the last session started has the newest.
 // shortcut: reads every log on each build, up to once a minute per busy session; when the page's
 // "Built in N ms" grows past a second or so, keep per-day sums and read only today's logs.
-const writeStats = async ($: EngineInterface) => {
+const writeStats = async ($: EngineInterface, page = false) => {
   await writing // this turn's lines first
   dirty = false
   const started = await $.clock.now()
@@ -182,9 +184,15 @@ const writeStats = async ($: EngineInterface) => {
   const entries = files.flatMap((f, i) => parseLog(f.name.slice(0, 10), texts[i] ?? ''))
   const now = await $.clock.now()
   const info = await sessionInfo($, entries)
-  const html = statsHtml(entries, day(now), (await sharedLimits($)) ?? [], { ms: now - started, lines: entries.length, files: files.length }, info)
   const file = `${dir}/stats.html`
-  await $.fs.write(file, html)
+  // The page first, then the data naming it, so an open page that sees a new page named reloads whole.
+  if (page || !(await $.fs.exists(file))) {
+    await $.fs.write(file, statsPage())
+    await $.store.set('page', now)
+  }
+  const pageAt = Number((await $.store.get('page')) ?? 0)
+  const data = statsData(entries, day(now), (await sharedLimits($)) ?? [], { ms: now - started, lines: entries.length, files: files.length }, info, pageAt)
+  await $.fs.write(`${dir}/data.js`, statsScript(data))
   return file
 }
 
@@ -240,8 +248,9 @@ export const register: Register = on => {
     // An earlier reading of this session's seeds the shared one only where none is kept yet.
     if (usage.rateLimits.length > 0 && !(await sharedLimits($))) await $.store.set('limits', usage.rateLimits)
     await show($, now)
-    // The page too, so a /reload-plugins shows new code's page at once; not awaited, it reads every log.
-    void writeStats($).catch(() => {})
+    // The page's code and its data, so a /reload-plugins puts this code's page in place at once and other
+    // sessions' builds leave it there; not awaited, it reads every log.
+    void writeStats($, true).catch(() => {})
     // Each minute: the countdown, what other sessions have added to today and to the limits, and the
     // page when this session logged a line since its last build, so a long turn shows up mid-turn.
     $.clock.every(60_000, async () => {

@@ -2,7 +2,7 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { On } from 'claude-code/testing'
 
 import { count, day, format, left, limit, ROLL_BYTES } from './register'
-import { statsHtml } from './stats'
+import { statsData, statsScript } from './stats'
 
 const NOW = Date.parse('2026-11-13T12:00:00Z')
 const TODAY = day(NOW)
@@ -30,8 +30,12 @@ const api = (on: On) =>
     }
   })
 const step = { turnId: 't', model: 'm', messageCount: 1 }
-// The log files written, without the stats.html each session start builds.
+// The log files written, without the page and data each session start builds.
 const logs = (files: Record<string, string>) => Object.keys(files).filter(p => p.endsWith('.jsonl'))
+// What data.js sets window.USAGE to.
+const dataOf = (js: string | undefined) => JSON.parse(js!.slice('window.USAGE = '.length))
+// What a session started later wrote to stats.html, for a session on older code to leave alone.
+const NEWER = '<!-- a newer session -->'
 
 // A file named in `broken` is there but cannot be stat'ed.
 const engine = (
@@ -129,6 +133,7 @@ test('responses add tokens mid-turn, a measure shares its limits, and today sums
   expect(Object.keys(store).sort()).toEqual([
     `cost:${TODAY}:other`, // this session's cost goes in with its next line
     'limits',
+    'page', // when session start wrote stats.html
     `tok:${TODAY}:other`,
     `tok:${TODAY}:this`,
   ])
@@ -169,25 +174,32 @@ test('/usage-stats builds the page from every day\'s logs and opens it', async (
   files[`${dir}2026-11-01.other.jsonl`] =
     `${JSON.stringify({ session: 'other', model: 'big', input: 1, output: 2, cacheRead: 3, cacheWrite: 4, cost: 1.5 })}\n{"cut`
 
-  // A main turn's end rebuilds the page without opening it; a subagent's does nothing.
+  // A main turn's end rebuilds the data without opening the page; a subagent's does nothing. The page
+  // itself, the same for every build, is left as the latest session start wrote it.
   const done = { answer: '', durationMs: 65_000, isAborted: false, turnId: 't', reason: 'answer' as const }
-  delete files[`${dir}stats.html`] // the one session start built
+  delete files[`${dir}data.js`] // the one session start built
+  files[`${dir}stats.html`] = NEWER
   await $.turn.complete({ ...done, agentId: 'a1' })
-  expect(files[`${dir}stats.html`]).toBeUndefined()
+  expect(files[`${dir}data.js`]).toBeUndefined()
   await $.turn.complete(done)
-  expect(files[`${dir}stats.html`]).toContain('"m":"big"')
+  expect(files[`${dir}data.js`]).toContain('"m":"big"')
+  expect(files[`${dir}stats.html`]).toBe(NEWER)
   expect(ran.map(a => a[0])).toEqual(['grep']) // the title only: nothing opened
   expect(ran[0]!.at(-1)).toBe(transcript) // the path the engine resolved
 
+  await $.command.run({ command: 'usage-stats' })
+  expect(files[`${dir}stats.html`]).toBe(NEWER) // opening rebuilds the data alone too
+  delete files[`${dir}stats.html`]
   const { text } = await $.command.run({ command: 'usage-stats' })
 
-  const page = files[`${dir}stats.html`]
+  const page = files[`${dir}stats.html`] // a missing page is written
   // The module's own spelling; the engine makes the path absolute where it touches the disk.
   expect(text).toBe('Usage statistics opened: /home/u/.claude/usage-statusline/stats.html')
   expect(ran.at(-1)).toEqual(['xdg-open', '/home/u/.claude/usage-statusline/stats.html'])
-  // The page carries the logs summed per day, project, session and model ('' for turn lines), and each
-  // session's latest title; its script draws the period, chart and tables from them.
-  const data = JSON.parse(page!.split('<script id="data" type="application/json">')[1]!.split('</script>')[0]!)
+  // The data carries the logs summed per day, project, session and model ('' for turn lines), and each
+  // session's latest title; the page's script draws the period, chart and tables from them.
+  const data = dataOf(files[`${dir}data.js`])
+  expect(data.version).toBe(1)
   const T = '2026-11-13T12:00:00.000Z'
   const none = { r: 0, n: 0, ms: 0, i: 0, o: 0, cr: 0, cw: 0, c: 0 }
   expect(data.today).toBe(TODAY)
@@ -199,25 +211,22 @@ test('/usage-stats builds the page from every day\'s logs and opens it', async (
     { d: TODAY, p: 'alpha', s: 'this', m: 'm', ...none, r: 1, i: 1_000, o: 2_000, cr: 40_000, cw: 7_000, f: T, l: T },
   ])
   // What the script draws into, and its choices: period, metric, grouping.
-  for (const id of ['scope', 'kpis', 'chart', 'breakdown', 'sessions']) expect(page).toContain(`id="${id}"`)
+  for (const id of ['nav', 'built', 'limits', 'scope', 'kpis', 'chart', 'breakdown', 'sessions']) expect(page).toContain(`id="${id}"`)
+  expect(page).toContain('<script src="data.js"></script>')
+  expect(page!.indexOf("getItem('usage-theme')")).toBeLessThan(page!.indexOf('<body>')) // the theme is set before anything is painted
   expect(page).toContain('<div class="seg" role="group" aria-label="period"><button data-period="1">Today</button><button data-period="7">7d</button><button data-period="30">30d</button><button data-period="90">90d</button><button data-period="0">All</button></div>')
   expect(page).toContain('<button data-metric="turns">Turns</button><button data-metric="responses">Responses</button>')
-  expect(page).toContain('No rate-limit reading yet') // none shared in this store
+  expect(data.limits).toEqual([]) // none shared in this store
   expect(page).toContain('<a class="repo" href="https://github.com/leekd123/claude-usage-statusline"')
 
   // A sidebar entry per project, the most recently used first, with its tokens; a line from before the
   // project was logged counts under "(no project)".
-  expect(page).toContain(
-    '<button data-project=""><span>All projects</span><small>50.0k</small></button><button data-project="alpha"><span>alpha</span><small>50.0k</small></button><button data-project="(no project)"><span>(no project)</span><small>10</small></button>',
-  )
+  expect(data.projects).toEqual([['alpha', 50_000], ['(no project)', 10]])
 
-  // The shared reading shows as one card per window, its reset time for the page's countdown.
+  // The shared reading goes in whole, for the page to draw a card per window and count down to its reset.
   store.limits = LIMITS
   await $.command.run({ command: 'usage-stats' })
-  expect(files[`${dir}stats.html`]).toContain(
-    '<div class="card limit" data-pct="4" data-resets="2026-11-13T15:23:00Z"><div class="label">5-hour window</div><div class="value pct">4%</div>',
-  )
-  expect(files[`${dir}stats.html`]).toContain('<div class="label">7-day window</div>')
+  expect(dataOf(files[`${dir}data.js`]).limits).toEqual(LIMITS)
 })
 
 test('a full log file rolls to the next part, and one that cannot be stat\'ed is never written over', async ($, on) => {
@@ -252,21 +261,25 @@ test('the page is built at session start, and on the minute timer only after a n
   on('fs.list', () => ({
     value: Object.keys(files).map(p => ({ name: p.split(/[\\/]/).at(-1)!, kind: 'file', size: 0, mtimeMs: 0, isLink: false })),
   }))
-  const page = () => Object.keys(files).find(p => p.endsWith('stats.html'))
+  const find = (name: string) => Object.keys(files).find(p => p.endsWith(name))
 
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   await clock.advance(0) // the unawaited build settles
-  const built = page()!
-  expect(files[built]).toContain('<button aria-pressed="true">Auto refresh</button>')
-  expect(files[built]).toContain(' in 0 ms, 0 lines in 0 files') // the mock clock stands still while it builds
+  const page = find('stats.html')!, built = find('data.js')!
+  expect(files[page]).toContain('<button aria-pressed="true">Auto refresh</button>')
+  expect(dataOf(files[built]).built).toEqual({ ms: 0, lines: 0, files: 0 }) // the mock clock stands still while it builds
+  expect(dataOf(files[built]).page).toBe(NOW) // names the page session start wrote, for an open page to reload on
 
   delete files[built]
   await clock.advance(60_000)
-  expect(page()).toBeUndefined() // nothing logged since: no rebuild
+  expect(find('data.js')).toBeUndefined() // nothing logged since: no rebuild
 
+  files[page] = NEWER
   await drain($.turn.step({ ...step, index: 0 }))
   await clock.advance(60_000)
-  expect(files[built]).toContain(' in 0 ms, 1 lines in 1 files') // the new line, mid-turn
+  expect(dataOf(files[built]).built).toEqual({ ms: 0, lines: 1, files: 1 }) // the new line, mid-turn
+  expect(files[page]).toBe(NEWER) // the page is session start's to write
+  expect(dataOf(files[built]).page).toBe(NOW) // still the same page: an open one only redraws
 })
 
 test('on Windows the title is found with findstr, and a line that only quotes the record is passed over', async ($, on) => {
@@ -292,20 +305,19 @@ test('on Windows the title is found with findstr, and a line that only quotes th
   expect(files[log!]).toContain('"turn":true,"ms":1000,"title":"Win title"}')
 })
 
-test('a title or project with markup in it stays data: it cannot close the data block or add a tag', () => {
+test('a title or project with markup in it stays data: it cannot end the data script or add a tag', () => {
   const evil = '</script><img src=x onerror=alert(1)>'
-  const page = statsHtml(
+  const js = statsScript(statsData(
     [{ day: '2026-11-13', session: 's', project: evil, model: 'm', input: 1, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, turn: true, t: '2026-11-13T00:00:00.000Z', ms: 0, title: evil }],
     '2026-11-13',
-  )
-  expect(page.split('</script>').length).toBe(3) // only the data block's and the script's own ends
-  expect(page).not.toContain('<img')
-  expect(page).toContain('\\u003c/script>\\u003cimg') // in the data, as JSON reads back
+  ))
+  expect(js).not.toContain('<')
+  expect(dataOf(js).titles.s).toBe(evil) // as JSON reads it back
 })
 
 test('a session begun before projects were logged counts under the project its later lines name', () => {
   const line = { day: '2026-11-18', model: 'm', input: 1, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, turn: false, ms: 0 }
-  const page = statsHtml(
+  const data = statsData(
     [
       { ...line, session: 'a', project: '(no project)', t: '2026-11-18T00:00:00.000Z' }, // before the reload
       { ...line, session: 'a', project: 'calc', t: '2026-11-18T04:00:00.000Z' },
@@ -313,10 +325,9 @@ test('a session begun before projects were logged counts under the project its l
     ],
     '2026-11-18',
   )
-  const data = JSON.parse(page.split('<script id="data" type="application/json">')[1]!.split('</script>')[0]!)
-  expect(data.rows.map((r: { s: string; p: string; r: number }) => [r.s, r.p, r.r])).toEqual([['a', 'calc', 2], ['b', '(no project)', 1]])
+  expect(data.rows.map(r => [r.s, r.p, r.r])).toEqual([['a', 'calc', 2], ['b', '(no project)', 1]])
   // Same last day, so by name: "(no project)" first. Session a sits under calc alone.
-  expect(page).toContain('<button data-project="(no project)"><span>(no project)</span><small>1</small></button><button data-project="calc"><span>calc</span><small>2</small></button>')
+  expect(data.projects).toEqual([['(no project)', 1], ['calc', 2]])
 })
 
 test('a session the logs name no title or project for gets both from its transcript, looked up once', async ($, on) => {
@@ -348,7 +359,7 @@ test('a session the logs name no title or project for gets both from its transcr
   files[dir.replace(/usage-statusline([\\/])$/, 'projects$1D--work-old-app$1old.jsonl')] = ''
 
   await $.command.run({ command: 'usage-stats' })
-  const data = JSON.parse(files[`${dir}stats.html`]!.split('<script id="data" type="application/json">')[1]!.split('</script>')[0]!)
+  const data = dataOf(files[`${dir}data.js`])
   expect(data.titles.old).toBe('Old work')
   expect(data.rows.find((r: { s: string }) => r.s === 'old').p).toBe('old-app')
   expect(store['session:old']).toEqual({ title: 'Old work', project: 'old-app' })
@@ -361,7 +372,7 @@ test('a session the logs name no title or project for gets both from its transcr
 
 test('the desktop app scratch folders show as one project', () => {
   const line = { day: '2026-11-18', model: 'm', input: 1, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, turn: false, ms: 0, t: '2026-11-18T00:00:00.000Z' }
-  const page = statsHtml(
+  const data = statsData(
     [
       { ...line, session: 'a', project: 'scratch-2026-11-10-1cd218' },
       { ...line, session: 'b', project: 'scratch-2026-11-13-e2d38a' },
@@ -370,7 +381,6 @@ test('the desktop app scratch folders show as one project', () => {
     ],
     '2026-11-18',
   )
-  const data = JSON.parse(page.split('<script id="data" type="application/json">')[1]!.split('</script>')[0]!)
-  expect(data.rows.map((r: { s: string; p: string }) => [r.s, r.p])).toEqual([['a', '(scratch)'], ['b', '(scratch)'], ['c', 'scratch-pad'], ['d', '(scratch)']])
-  expect(page).toContain('<button data-project="(scratch)"><span>(scratch)</span><small>3</small></button>')
+  expect(data.rows.map(r => [r.s, r.p])).toEqual([['a', '(scratch)'], ['b', '(scratch)'], ['c', 'scratch-pad'], ['d', '(scratch)']])
+  expect(data.projects).toContainEqual(['(scratch)', 3])
 })

@@ -1,6 +1,6 @@
-// The statistics page: one self-contained HTML file built from the daily JSONL logs.
+// The statistics page: stats.html, the page's code, and data.js beside it, built from the daily JSONL logs.
 // No server and no network: inline CSS, inline SVG and a script. The mod sums the logs into rows (one per
-// day, project, session and model) and puts them in the page as JSON; the page's script draws the period,
+// day, project, session and model) and writes them to data.js; the page's script draws the period,
 // project, chart and tables from them, so changing any of those needs no rebuild.
 
 import type { SessionRateLimit } from 'claude-code'
@@ -92,22 +92,6 @@ export const rollup = (entries: Entry[]) => {
   return { rows: [...rows.values()].map(r => ({ ...r, c: +r.c.toFixed(6) })), titles }
 }
 
-const fmt = (n: number) =>
-  n >= 1e9 ? `${(n / 1e9).toFixed(2)}B` : n >= 1e6 ? `${(n / 1e6).toFixed(2)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}k` : String(n)
-const esc = (s: string) => s.replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`)
-
-const LIMIT_NAME: Record<string, string> = { five_hour: '5-hour window', seven_day: '7-day window', spend_limit: 'Spend limit' }
-
-// One card per rate-limit window, as the last reading any session took. The page's script turns
-// data-resets into a countdown, and shows 0% once the reset has passed, as the status line does.
-const limitCard = (r: SessionRateLimit) =>
-  `<div class="card limit" data-pct="${num(r.percentUsed)}"${r.resetsAt ? ` data-resets="${esc(r.resetsAt)}"` : ''}><div class="label">${esc(LIMIT_NAME[r.kind] ?? r.kind)}</div><div class="value pct">${num(r.percentUsed)}%</div><div class="meter"><i style="width:${Math.min(100, num(r.percentUsed))}%"></i></div><div class="sub reset">${r.resetsAt ? '' : 'no reset time reported'}</div></div>`
-
-const limits = (rateLimits: readonly SessionRateLimit[]) =>
-  rateLimits.length > 0
-    ? `<div class="cards">${rateLimits.map(limitCard).join('')}</div>`
-    : '<div class="note">No rate-limit reading yet. Subscription accounts get one with a session\'s first response.</div>'
-
 // How the page was built: the time it took and what it read, to tell when reading every log gets slow.
 export type Built = { ms: number; lines: number; files: number }
 
@@ -137,9 +121,13 @@ export const SCRATCH_PROJECT = '(scratch)'
 // What a session's transcript gave for one the logs name no title or project for.
 export type SessionInfo = { title?: string; project?: string }
 
-export const statsHtml = (logged: Entry[], today: string, rateLimits: readonly SessionRateLimit[] = [], built?: Built, info: Record<string, SessionInfo> = {}) => {
+// What data.js carries. VERSION changes only when this shape does; a page meeting another asks for a reload.
+export const VERSION = 1
+
+// `page`: when stats.html was last written; an open page that sees it change reloads whole for the new code.
+export const statsData = (logged: Entry[], today: string, rateLimits: readonly SessionRateLimit[] = [], built?: Built, info: Record<string, SessionInfo> = {}, page = 0) => {
   const entries = fillProjects(logged, info)
-  const data = { today, ...rollup(entries) }
+  const data = { version: VERSION, page, today, ...rollup(entries), limits: rateLimits, built: built ?? null, projects: [] as [string, number][] }
   for (const [session, i] of Object.entries(info)) if (i.title && !data.titles[session]) data.titles[session] = i.title
   // Projects by their last day of use, the most recent first, each with its all-time tokens.
   const projects = new Map<string, { last: string; tokens: number }>()
@@ -147,15 +135,24 @@ export const statsHtml = (logged: Entry[], today: string, rateLimits: readonly S
     const p = projects.get(e.project) ?? { last: '', tokens: 0 }
     projects.set(e.project, { last: e.day > p.last ? e.day : p.last, tokens: p.tokens + e.input + e.output + e.cacheRead + e.cacheWrite })
   }
-  const order = [...projects].sort((a, b) => b[1].last.localeCompare(a[1].last) || a[0].localeCompare(b[0]))
-  const all = order.reduce((n, [, p]) => n + p.tokens, 0)
-  const nav = [['', 'All projects', all] as const, ...order.map(([n, p]) => [n, n, p.tokens] as const)]
-    .map(([key, name, tokens]) => `<button data-project="${esc(key)}"><span>${esc(name)}</span><small>${fmt(tokens)}</small></button>`)
-    .join('')
+  data.projects = [...projects].sort((a, b) => b[1].last.localeCompare(a[1].last) || a[0].localeCompare(b[0])).map(([n, p]) => [n, p.tokens])
+  return data
+}
 
-  return `<!doctype html>
+// data.js: a script, not JSON, since a file:// page may load a script beside it but not fetch a file.
+// `<` is escaped so no text in the data can end a script.
+export const statsScript = (data: ReturnType<typeof statsData>) => `window.USAGE = ${JSON.stringify(data).replace(/</g, '\\u003c')}\n`
+
+// What the page shows until its script has drawn from data.js: the same boxes, empty, so nothing moves
+// when the figures arrive (two rate-limit windows, as subscriptions report).
+const PLACEHOLDER_LIMITS = `<div class="cards">${'<div class="card limit"><div class="label">&nbsp;</div><div class="value pct">—</div><div class="meter"><i style="width:0"></i></div><div class="sub reset">&nbsp;</div></div>'.repeat(2)}</div>`
+const PLACEHOLDER_KPIS = METRICS.map(([, label]) => `<div class="card"><div class="label">${label}</div><div class="value">—</div><div class="sub">&nbsp;</div></div>`).join('')
+
+// The page's code: the same for every build, so the mod writes it only at session start.
+export const statsPage = () => `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Claude usage</title>
+<script>try { const t = localStorage.getItem('usage-theme'); if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t) } catch {} // the chosen theme before the first paint, so a reload never flashes the other one</script>
 <style>
 :root{--bg:#fafaf9;--fg:#1c1917;--dim:#78716c;--line:#e7e5e4;--card:#fff;--bar:#d97757;--hover:#f5f5f4;--up:#b45309;--down:#15803d}
 @media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#1c1917;--fg:#f5f5f4;--dim:#a8a29e;--line:#44403c;--card:#292524;--bar:#e08a6d;--hover:#292524;--up:#fbbf24;--down:#4ade80}}
@@ -179,7 +176,7 @@ h1{font-size:20px;margin:0 0 4px}h2{font-size:15px;margin:32px 0 8px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
 .label,.sub{color:var(--dim);font-size:12px}.value{font-size:20px;font-weight:600}
 .delta{font-size:12px;font-weight:500;margin-left:6px}.delta.up{color:var(--up)}.delta.down{color:var(--down)}
-svg{width:100%;height:auto;display:block}svg text{fill:var(--dim);font-size:10px}
+svg{width:100%;height:auto;display:block}#chart svg{aspect-ratio:840/182}#breakdown,#sessions{min-height:120px}svg text{fill:var(--dim);font-size:10px}
 .bar{fill:var(--bar)}.none{fill:var(--line)}
 .meter{height:6px;border-radius:3px;background:var(--line);margin:6px 0 4px;overflow:hidden}.meter i{display:block;height:100%;background:var(--bar)}
 .scroll{overflow-x:auto}
@@ -201,16 +198,16 @@ th:first-child,td:first-child,.two th:nth-child(2),.two td:nth-child(2){text-ali
 main>h2:first-child{margin-top:0}
 @media (max-width:720px){.app{grid-template-columns:minmax(0,1fr)}.side{position:static;height:auto;border-right:0;border-bottom:1px solid var(--line)}.side nav{flex-direction:row;flex-wrap:wrap}.side .foot{margin-top:12px}}
 </style></head><body><div class="app">
-<aside class="side"><h1>Claude usage</h1><div class="label">Projects</div><nav aria-label="Projects">${nav}</nav>
-<div class="foot"><a class="repo" href="${REPO}" target="_blank" rel="noopener noreferrer">usage-statusline on GitHub ↗</a><div class="note">Built ${esc(today)} from this machine's usage-statusline logs${built ? ` in ${built.ms} ms, ${built.lines.toLocaleString('en')} lines in ${built.files} files` : ''}.</div>
-<div class="reload"><span class="refresh"><button aria-pressed="true">Auto refresh</button></span> <select class="every" aria-label="Refresh every"><option value="15">15s</option><option value="30">30s</option><option value="60">1m</option><option value="300">5m</option><option value="900">15m</option></select> <span class="note next"></span></div>
+<aside class="side"><h1>Claude usage</h1><div class="label">Projects</div><nav aria-label="Projects" id="nav"><button data-project="" aria-pressed="true"><span>All projects</span><small>—</small></button></nav>
+<div class="foot"><a class="repo" href="${REPO}" target="_blank" rel="noopener noreferrer">usage-statusline on GitHub ↗</a><div class="note" id="built">&nbsp;</div>
+<div class="reload"><span class="refresh"><button aria-pressed="true">Auto refresh</button></span> <select class="every" aria-label="Refresh every"><option value="5">5s</option><option value="10">10s</option><option value="15">15s</option><option value="30">30s</option><option value="60">1m</option><option value="300">5m</option><option value="900">15m</option></select> <span class="note next"></span></div>
 <div class="theme" role="group" aria-label="Theme"><button data-theme="light">Light</button><button data-theme="dark">Dark</button><button data-theme="system">System</button></div></div></aside>
 <main>
 <h2>Rate limits</h2>
-${limits(rateLimits)}
-<div class="top"><h2 id="scope"></h2>${seg('period', PERIODS)}</div>
-<div class="cards" id="kpis"></div>
-<div class="head"><h2 id="chart-title"></h2>${seg('metric', METRICS)}</div>
+<div id="limits">${PLACEHOLDER_LIMITS}</div>
+<div class="top"><h2 id="scope">&nbsp;</h2>${seg('period', PERIODS)}</div>
+<div class="cards" id="kpis">${PLACEHOLDER_KPIS}</div>
+<div class="head"><h2 id="chart-title">&nbsp;</h2>${seg('metric', METRICS)}</div>
 <div class="chart" id="chart"><svg role="img"></svg><div class="tip" hidden></div></div>
 <h2>Breakdown</h2>
 <div class="group">Group by <label><input type="checkbox" data-group="day"> Day</label><label><input type="checkbox" data-group="model"> Model</label></div>
@@ -219,10 +216,9 @@ ${limits(rateLimits)}
 <div class="scroll" id="sessions"></div>
 <p class="note">Cost is the engine's API-price estimate, not what a subscription bills. Days are this machine's local days.</p>
 </main></div>
-<script id="data" type="application/json">${JSON.stringify(data).replace(/</g, '\\u003c')}</script>
+<script src="data.js"></script>
 <script>${CLIENT}</script></body></html>
 `
-}
 
 // The page's script. Plain JavaScript in a raw string: no backticks and no dollar-brace inside.
 const CLIENT = String.raw`
@@ -243,16 +239,7 @@ for (const b of document.querySelectorAll('.theme button')) b.onclick = () => se
 // Rate limits: time left to each reset.
 const pad = n => String(n).padStart(2, '0')
 const shortTime = d => d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-for (const card of document.querySelectorAll('.limit[data-resets]')) {
-  const at = new Date(card.dataset.resets), min = Math.round((at - Date.now()) / 60000)
-  const passed = min <= 0, pct = passed ? 0 : Number(card.dataset.pct)
-  card.querySelector('.pct').textContent = pct + '%'
-  card.querySelector('.meter i').style.width = Math.min(100, pct) + '%'
-  const d = Math.floor(min / 1440), left = (d > 0 ? d + 'd ' : '') + Math.floor((min % 1440) / 60) + ':' + pad(min % 60)
-  card.querySelector('.reset').textContent = passed ? 'Reset at ' + shortTime(at) + '; the next window starts with the next use' : 'Resets in ' + left + ' · ' + shortTime(at)
-}
-
-// Auto refresh: the mod rebuilds this file as usage comes in, and the page reloads every so often (a
+// Auto refresh: the mod rebuilds data.js as usage comes in, and the page loads it again every so often (a
 // minute unless chosen) to pick that up, counting down beside the button, which turns it off and on.
 // Every choice on the page is kept in the browser, and the browser keeps the scroll position.
 const toggle = document.querySelector('.refresh button'), next = document.querySelector('.next'), every = document.querySelector('.every')
@@ -275,17 +262,58 @@ every.onchange = () => {
   keep('usage-reload-s', period)
   drawReload()
 }
+// Each refresh loads data.js again and redraws in place, so nothing flashes. The whole page reloads only
+// when it has to: data.js names a newer stats.html, has another shape, or was missing at first.
+const refresh = () => {
+  const s = document.createElement('script')
+  s.src = 'data.js?' + Date.now()
+  s.onload = s.onerror = () => {
+    s.remove()
+    const d = window.USAGE
+    if (!d || d === DATA) return // not there, or cut off mid-write: try again next time
+    if (!DATA || DATA.version !== 1 || d.version !== DATA.version || d.page !== DATA.page) location.reload()
+    else { DATA = d; render() }
+  }
+  document.head.appendChild(s)
+}
 drawReload()
 setInterval(() => {
   if (!reload) return
-  if (--left <= 0) location.reload()
-  else drawReload()
+  if (--left <= 0) { left = period; refresh() }
+  drawReload()
 }, 1000)
 
-// The data and how to read it.
-const DATA = JSON.parse(document.getElementById('data').textContent)
+// The data and how to read it. data.js is rewritten as usage comes in; a page that finds none, or one
+// of a shape it does not know (a session on other code wrote it), says so and draws nothing more.
+let DATA = window.USAGE
 const esc = s => String(s).replace(/[&<>"']/g, c => '&#' + c.charCodeAt(0) + ';')
 const fmt = n => n >= 1e9 ? (n / 1e9).toFixed(2) + 'B' : n >= 1e6 ? (n / 1e6).toFixed(2) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'k' : String(n)
+if (!DATA || DATA.version !== 1) {
+  document.querySelector('main').innerHTML = '<p class="note">' + (DATA ? 'This page and its data.js come from different versions of usage-statusline. Run /reload-plugins in a Claude Code session to rebuild both.' : 'No data.js next to this page yet. Run /usage-stats in a Claude Code session.') + '</p>'
+  throw new Error('usage-statusline: no usable data.js')
+}
+
+// Projects, with each one's all-time tokens, and how the data was built.
+const drawSide = () => {
+  document.getElementById('nav').innerHTML = [['', 'All projects', DATA.projects.reduce((n, p) => n + p[1], 0)]].concat(DATA.projects.map(p => [p[0], p[0], p[1]]))
+    .map(p => '<button data-project="' + esc(p[0]) + '"><span>' + esc(p[1]) + '</span><small>' + fmt(p[2]) + '</small></button>').join('')
+  const b = DATA.built
+  document.getElementById('built').textContent = 'Built ' + DATA.today + " from this machine's usage-statusline logs" + (b ? ' in ' + b.ms + ' ms, ' + b.lines.toLocaleString('en') + ' lines in ' + b.files + ' files' : '') + '.'
+}
+
+// Rate limits: one card per window, as the last reading any session took, with the time left to its
+// reset; 0% once the reset has passed, as the status line shows.
+const LIMIT_NAME = { five_hour: '5-hour window', seven_day: '7-day window', spend_limit: 'Spend limit' }
+const num = v => (typeof v === 'number' && isFinite(v) ? v : 0)
+const drawLimits = () => document.getElementById('limits').innerHTML = DATA.limits.length === 0
+  ? '<div class="note">No rate-limit reading yet. Subscription accounts get one with a session' + "'" + 's first response.</div>'
+  : '<div class="cards">' + DATA.limits.map(r => {
+    const at = r.resetsAt ? new Date(r.resetsAt) : null, min = at ? Math.round((at - Date.now()) / 60000) : 0
+    const passed = at && min <= 0, pct = passed ? 0 : num(r.percentUsed)
+    const d = Math.floor(min / 1440), left = (d > 0 ? d + 'd ' : '') + Math.floor((min % 1440) / 60) + ':' + pad(min % 60)
+    const reset = !at ? 'no reset time reported' : passed ? 'Reset at ' + shortTime(at) + '; the next window starts with the next use' : 'Resets in ' + left + ' · ' + shortTime(at)
+    return '<div class="card limit"><div class="label">' + esc(LIMIT_NAME[r.kind] || r.kind) + '</div><div class="value pct">' + pct + '%</div><div class="meter"><i style="width:' + Math.min(100, pct) + '%"></i></div><div class="sub reset">' + esc(reset) + '</div></div>'
+  }).join('') + '</div>'
 const usd = n => '$' + n.toFixed(2)
 const elapsed = ms => {
   const s = Math.round(ms / 1000)
@@ -402,11 +430,18 @@ const draw = () => {
 }
 
 const set = (key, value, store) => { state[key] = value; if (store) keep(store, value); draw() }
-for (const b of document.querySelectorAll('.side nav button')) b.onclick = () => { try { localStorage.setItem('usage-project', b.dataset.project) } catch {} set('project', b.dataset.project) }
+// The project list is redrawn with the data, so its clicks are taken on the list.
+document.getElementById('nav').onclick = e => {
+  const b = e.target.closest('button')
+  if (!b) return
+  try { localStorage.setItem('usage-project', b.dataset.project) } catch {}
+  set('project', b.dataset.project)
+}
 for (const b of document.querySelectorAll('[data-period]')) b.onclick = () => set('period', Number(b.dataset.period), 'usage-period')
 for (const b of document.querySelectorAll('[data-metric]')) b.onclick = () => set('metric', b.dataset.metric, 'usage-metric')
 for (const c of document.querySelectorAll('[data-group]')) c.onchange = () => set('groups', Object.assign({}, state.groups, { [c.dataset.group]: c.checked }), 'usage-groups')
-draw()
+const render = () => { drawSide(); drawLimits(); draw() }
+render()
 
 // Chart tooltip: above the hovered day's column.
 const chart = document.getElementById('chart'), tip = chart.querySelector('.tip')
