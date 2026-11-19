@@ -280,6 +280,19 @@ test('the page is built at session start, and on the minute timer only after a n
   expect(dataOf(files[built]).built).toEqual({ ms: 0, lines: 1, files: 1 }) // the new line, mid-turn
   expect(files[page]).toBe(NEWER) // the page is session start's to write
   expect(dataOf(files[built]).page).toBe(NOW) // still the same page: an open one only redraws
+
+  // Another session start (one the desktop app starts, or an idle one resumed) puts this code's page
+  // back, naming it anew, only where the page differs from it.
+  await clock.advance(60_000)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await clock.advance(0)
+  expect(files[page]).toContain('<button aria-pressed="true">Auto refresh</button>')
+  const rewritten = dataOf(files[built]).page
+  expect(rewritten).toBeGreaterThan(NOW)
+  await clock.advance(60_000)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await clock.advance(0)
+  expect(dataOf(files[built]).page).toBe(rewritten) // the same page: not written, not named anew
 })
 
 test('on Windows the title is found with findstr, and a line that only quotes the record is passed over', async ($, on) => {

@@ -186,9 +186,14 @@ const writeStats = async ($: EngineInterface, page = false) => {
   const info = await sessionInfo($, entries)
   const file = `${dir}/stats.html`
   // The page first, then the data naming it, so an open page that sees a new page named reloads whole.
+  // Only a page that differs is written: the desktop app starts sessions of its own (pre-started ones, an
+  // idle one resumed), and the same page written again would reload every open one for nothing.
   if (page || !(await $.fs.exists(file))) {
-    await $.fs.write(file, statsPage())
-    await $.store.set('page', now)
+    const html = statsPage()
+    if ((await $.fs.read(file).catch(() => undefined)) !== html) {
+      await $.fs.write(file, html)
+      await $.store.set('page', now)
+    }
   }
   const pageAt = Number((await $.store.get('page')) ?? 0)
   const data = statsData(entries, day(now), (await sharedLimits($)) ?? [], { ms: now - started, lines: entries.length, files: files.length }, info, pageAt)
