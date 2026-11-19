@@ -163,6 +163,7 @@ export const statsHtml = (logged: Entry[], today: string, rateLimits: readonly S
 :root{color-scheme:light}:root[data-theme=dark]{color-scheme:dark}
 @media (prefers-color-scheme:dark){:root:not([data-theme=light]){color-scheme:dark}}
 body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 system-ui,sans-serif}
+.every{font:inherit;font-size:12px;padding:3px 4px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--fg)}
 .theme,.refresh,.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
 .theme button,.refresh button,.seg button{font:inherit;font-size:12px;padding:4px 10px;border:0;background:var(--card);color:var(--dim);cursor:pointer}
 .theme button+button,.seg button+button{border-left:1px solid var(--line)}
@@ -187,7 +188,7 @@ th,td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:right;white
 td.id{color:var(--dim);font-family:ui-monospace,monospace}td.empty{text-align:left;color:var(--dim)}
 th:first-child,td:first-child,.two th:nth-child(2),.two td:nth-child(2){text-align:left}
 .group{display:flex;gap:14px;align-items:center;color:var(--dim);font-size:12px;margin-bottom:6px}.group label{display:inline-flex;gap:4px;align-items:center;color:var(--fg);cursor:pointer}th{color:var(--dim);font-weight:500}
-.app{display:grid;grid-template-columns:220px minmax(0,1fr);min-height:100vh}
+.app{display:grid;grid-template-columns:250px minmax(0,1fr);min-height:100vh}
 .side{position:sticky;top:0;height:100vh;box-sizing:border-box;overflow-y:auto;display:flex;flex-direction:column;padding:20px 12px;border-right:1px solid var(--line);background:var(--card)}
 .side h1{font-size:16px;margin:0 8px 20px}
 .side .label{margin:0 0 6px 8px}
@@ -202,7 +203,7 @@ main>h2:first-child{margin-top:0}
 </style></head><body><div class="app">
 <aside class="side"><h1>Claude usage</h1><div class="label">Projects</div><nav aria-label="Projects">${nav}</nav>
 <div class="foot"><a class="repo" href="${REPO}" target="_blank" rel="noopener noreferrer">usage-statusline on GitHub ↗</a><div class="note">Built ${esc(today)} from this machine's usage-statusline logs${built ? ` in ${built.ms} ms, ${built.lines.toLocaleString('en')} lines in ${built.files} files` : ''}.</div>
-<div class="reload"><span class="refresh"><button aria-pressed="true">Auto refresh</button></span> <span class="note next"></span></div>
+<div class="reload"><span class="refresh"><button aria-pressed="true">Auto refresh</button></span> <select class="every" aria-label="Refresh every"><option value="15">15s</option><option value="30">30s</option><option value="60">1m</option><option value="300">5m</option><option value="900">15m</option></select> <span class="note next"></span></div>
 <div class="theme" role="group" aria-label="Theme"><button data-theme="light">Light</button><button data-theme="dark">Dark</button><button data-theme="system">System</button></div></div></aside>
 <main>
 <h2>Rate limits</h2>
@@ -251,21 +252,27 @@ for (const card of document.querySelectorAll('.limit[data-resets]')) {
   card.querySelector('.reset').textContent = passed ? 'Reset at ' + shortTime(at) + '; the next window starts with the next use' : 'Resets in ' + left + ' · ' + shortTime(at)
 }
 
-// Auto refresh: the mod rebuilds this file as usage comes in, and the page reloads each minute to pick
-// that up, counting the seconds down beside the button, which turns it off and on. Every choice on the
-// page is kept in the browser, and the browser keeps the scroll position.
-const RELOAD_S = 60
-const toggle = document.querySelector('.refresh button'), next = document.querySelector('.next')
-let reload = true, left = RELOAD_S
+// Auto refresh: the mod rebuilds this file as usage comes in, and the page reloads every so often (a
+// minute unless chosen) to pick that up, counting down beside the button, which turns it off and on.
+// Every choice on the page is kept in the browser, and the browser keeps the scroll position.
+const toggle = document.querySelector('.refresh button'), next = document.querySelector('.next'), every = document.querySelector('.every')
+const EVERY = [...every.options].map(o => Number(o.value))
+let reload = true, period = EVERY.includes(kept('usage-reload-s', 60)) ? kept('usage-reload-s', 60) : 60, left = period
+every.value = String(period)
 try { reload = localStorage.getItem('usage-reload') !== 'off' } catch {}
 const drawReload = () => {
   toggle.setAttribute('aria-pressed', String(reload))
-  next.textContent = reload ? 'in ' + left + 's' : 'off'
+  next.textContent = reload ? 'in ' + (left < 60 ? left + 's' : Math.floor(left / 60) + ':' + pad(left % 60)) : 'off'
 }
 toggle.onclick = () => {
   reload = !reload
-  left = RELOAD_S
+  left = period
   try { localStorage.setItem('usage-reload', reload ? 'on' : 'off') } catch {}
+  drawReload()
+}
+every.onchange = () => {
+  period = left = Number(every.value)
+  keep('usage-reload-s', period)
   drawReload()
 }
 drawReload()
