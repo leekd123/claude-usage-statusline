@@ -69,7 +69,7 @@ A small translucent window on the desktop with the same figures, kept apart from
 **Using it**
 
 - Drag it anywhere. Double-click it to open the statistics page; right-click it for the menu.
-- **Items**: 5h and 7d usage, the time to each reset, and today's cost, tokens and agent time. A turn's agent time is added when the turn ends.
+- **Items**: 5h and 7d usage, the time to each reset, and today's cost, tokens and agent time. A turn's agent time is added when the turn ends. Times show as `hh:mm:ss`, with `Nd` before them from a day on (`4d 08:13:05`), and the countdowns move each second.
 - **Usage bars**: a bar under each usage item, across its label and figure, so the whole item is 100%. Green, amber from 70% and red from 90%. On unless you turn it off under Appearance.
 - **Appearance**: horizontal or vertical, usage bars and their thickness (Thin, Medium, Thick or Extra thick), font, System, Dark or Light theme or your own text and background colors, and 70, 85 or 100% opacity.
 - **Always on top**: on unless you turn it off.

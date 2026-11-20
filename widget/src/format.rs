@@ -27,12 +27,12 @@ pub struct Limit {
 // id, label, widest value
 pub const ITEMS: [(&str, &str, &str); 7] = [
     ("limit5", "5h", "100%"),
-    ("reset5", "5h reset", "6d 23:59"),
+    ("reset5", "5h reset", "6d 23:59:59"),
     ("limit7", "7d", "100%"),
-    ("reset7", "7d reset", "6d 23:59"),
+    ("reset7", "7d reset", "6d 23:59:59"),
     ("cost", "Cost", "$9,999.99"),
     ("tokens", "Tokens", "999.99M"),
-    ("time", "Agent", "999:59"),
+    ("time", "Agent", "9d 23:59:59"),
 ];
 
 pub fn count(n: f64) -> String {
@@ -58,20 +58,24 @@ pub fn cost(usd: f64) -> String {
     format!("${}.{:02}", grouped, cents % 100)
 }
 
-// Time to a reset, as the status line writes it: h:mm, or Nd h:mm.
-pub fn left(ms: f64) -> String {
-    let min = (ms / 60_000.0).round().max(0.0) as u64;
-    let (d, h, m) = (min / 1440, (min % 1440) / 60, min % 60);
+// Every time the widget shows: hh:mm:ss, with Nd before it from a day on.
+pub fn clock(secs: u64) -> String {
+    let (d, h, m, s) = (secs / 86_400, secs % 86_400 / 3600, secs % 3600 / 60, secs % 60);
+    let hms = format!("{h:02}:{m:02}:{s:02}");
     if d > 0 {
-        format!("{d}d {h}:{m:02}")
+        format!("{d}d {hms}")
     } else {
-        format!("{h}:{m:02}")
+        hms
     }
 }
 
-pub fn hours(ms: f64) -> String {
-    let min = (ms / 60_000.0).floor().max(0.0) as u64;
-    format!("{}:{:02}", min / 60, min % 60)
+// Time to a reset, rounded up, so it shows 00:00:00 only once the reset has come.
+pub fn left(ms: f64) -> String {
+    clock((ms / 1000.0).ceil().max(0.0) as u64)
+}
+
+pub fn elapsed(ms: f64) -> String {
+    clock((ms / 1000.0).round().max(0.0) as u64)
 }
 
 // A usage item's share of its window, 0 to 100; none for other items or a window not reported.
@@ -99,7 +103,7 @@ pub fn value(id: &str, data: &Data, now: f64) -> String {
         "reset7" => reset("seven_day"),
         "cost" => cost(data.cost_today),
         "tokens" => count(data.tokens_today),
-        "time" => hours(data.time_today),
+        "time" => elapsed(data.time_today),
         _ => String::new(),
     }
 }
@@ -121,9 +125,12 @@ mod tests {
         assert_eq!(count(12.0), "12");
         assert_eq!(cost(1234.5), "$1,234.50");
         assert_eq!(cost(5.724), "$5.72");
-        assert_eq!(left(((4 * 1440 + 8 * 60 + 13) * 60_000) as f64), "4d 8:13");
-        assert_eq!(left(194.0 * 60_000.0), "3:14");
-        assert_eq!(hours(90.0 * 60_000.0), "1:30");
+        assert_eq!(left(((4 * 86_400 + 8 * 3600 + 13 * 60 + 5) * 1000) as f64), "4d 08:13:05");
+        assert_eq!(left(194.0 * 60_000.0 + 0.4), "03:14:01"); // part of a second left counts as one
+        assert_eq!(left(0.0), "00:00:00");
+        assert_eq!(elapsed(45_000.0), "00:00:45");
+        assert_eq!(elapsed(1_930_000.0), "00:32:10");
+        assert_eq!(elapsed(25.0 * 3_600_000.0), "1d 01:00:00");
         assert!(newer("0.1.10", "0.1.9") && !newer("0.1.0", "0.1.0"));
     }
 
@@ -134,7 +141,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(value("limit5", &data, 0.0), "4%");
-        assert_eq!(value("reset5", &data, 0.0), "0:00");
+        assert_eq!(value("reset5", &data, 0.0), "00:00:01");
         assert_eq!(value("limit5", &data, 2000.0), "0%"); // the reset passed
         assert_eq!(value("reset5", &data, 2000.0), "–");
         assert_eq!(value("limit7", &data, 0.0), "10%");

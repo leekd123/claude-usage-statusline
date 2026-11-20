@@ -134,6 +134,7 @@ test('responses add tokens mid-turn, a measure shares its limits, and today sums
     `cost:${TODAY}:other`, // this session's cost goes in with its next line
     'limits',
     'page', // when session start wrote stats.html
+    'time', // today's agent time, summed by each build
     `tok:${TODAY}:other`,
     `tok:${TODAY}:this`,
   ])
@@ -414,6 +415,9 @@ test('on Windows the widget reads today\'s figures from widget.json and starts u
   })
   on('command.run', () => ({ text: '' }))
   on('turn.complete', () => ({ text: '' }))
+  on('fs.list', () => ({
+    value: Object.keys(files).map(p => ({ name: p.split(/[\\/]/).at(-1)!, kind: 'file', size: 0, mtimeMs: 0, isLink: false })),
+  }))
 
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   const json = Object.keys(files).find(k => k.endsWith('widget.json'))!

@@ -183,6 +183,8 @@ const writeStats = async ($: EngineInterface, page = false) => {
   const texts = await Promise.all(files.map(f => $.fs.read(`${dir}/${f.name}`).catch(() => '')))
   const entries = files.flatMap((f, i) => parseLog(f.name.slice(0, 10), texts[i] ?? ''))
   const now = await $.clock.now()
+  // Today's agent time, from the logs as the page counts it, for the widget.
+  await $.store.set('time', { day: day(now), ms: entries.reduce((n, e) => n + (e.day === day(now) ? e.ms : 0), 0) })
   const info = await sessionInfo($, entries)
   const file = `${dir}/stats.html`
   // The page first, then the data naming it, so an open page that sees a new page named reloads whole.
@@ -206,13 +208,14 @@ const writeStats = async ($: EngineInterface, page = false) => {
 // copy named by its version next to the logs, so the repository's file is never locked while it runs and an
 // update can replace it. The widget keeps its own settings; widget.closed says the person closed it ($.fs
 // cannot delete, so the file's text says it: "closed", or empty once /usage-widget opens it again).
-export const WIDGET_VERSION = '0.1.2'
+export const WIDGET_VERSION = '0.1.4'
 let windows = false
 // A path for a program outside: absolute as the file system resolves it (HOME may be a POSIX spelling), backslashes.
 const native = async ($: EngineInterface, path: string) => ((await realPath($, path)) ?? path).replaceAll('/', '\\')
 
 const writeWidget = async ($: EngineInterface, line: Line, now: number) => {
   const dir = await logDir($)
+  const time = (await $.store.get('time')) as { day: string; ms: number } | undefined
   const widget = {
     version: WIDGET_VERSION,
     at: now,
@@ -220,7 +223,7 @@ const writeWidget = async ($: EngineInterface, line: Line, now: number) => {
     limits: line.rateLimits.map(r => ({ kind: r.kind, percent: r.percentUsed, resetsAt: r.resetsAt ? Date.parse(r.resetsAt) : null })),
     costToday: line.costToday,
     tokensToday: line.tokensToday,
-    timeToday: await sumToday($, 'ms', now),
+    timeToday: time?.day === day(now) ? time.ms : 0, // as of the last build: a turn adds its time when it ends
     stats: `${await native($, dir)}\\stats.html`, // the folder resolves before the page is first written
   }
   await $.fs.write(`${dir}/widget.json`, JSON.stringify(widget))
@@ -355,9 +358,8 @@ export const register: Register = on => {
       const now = await $.clock.now()
       const session = await $.session.id()
       await log($, { t: new Date(now).toISOString(), session, project: await project($), turn: true, ms: e.durationMs, title: await title($) }, now)
-      await add($, 'ms', e.durationMs, now) // today's agent time, for the widget
-      await show($, now)
       await writeStats($).catch(() => {})
+      await show($, now) // after the build, which sums today's agent time
     }
     return ran
   })
