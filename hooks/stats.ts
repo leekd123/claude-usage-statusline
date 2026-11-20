@@ -36,11 +36,13 @@ const REPO = 'https://github.com/leekd123/claude-usage-statusline'
 
 export const NO_PROJECT = '(no project)'
 
-// One file's lines; a line that is not JSON (cut off mid-write, edited by hand) is skipped.
+// One file's lines; a line that is not JSON (cut off mid-write, edited by hand) is skipped, and so is a
+// rate-limit reading, which parseLimits reads.
 export const parseLog = (day: string, text: string): Entry[] =>
   text.split('\n').flatMap(line => {
     try {
       const o = JSON.parse(line)
+      if (Array.isArray(o.limits)) return []
       return [{
         day,
         session: String(o.session ?? ''),
@@ -56,6 +58,19 @@ export const parseLog = (day: string, text: string): Entry[] =>
         ms: num(o.ms),
         title: typeof o.title === 'string' ? o.title : undefined,
       }]
+    } catch {
+      return []
+    }
+  })
+
+// A rate-limit reading, logged when the shared one changes: [time, kind, percent used, reset time or ''].
+export type Reading = [string, string, number, string]
+export const parseLimits = (text: string): Reading[] =>
+  text.split('\n').flatMap(line => {
+    if (!line.includes('"limits"')) return []
+    try {
+      const o = JSON.parse(line)
+      return Array.isArray(o.limits) ? o.limits.map((r: Record<string, unknown>): Reading => [String(o.t ?? ''), String(r.kind ?? ''), num(r.percent), String(r.resetsAt ?? '')]) : []
     } catch {
       return []
     }
@@ -129,9 +144,9 @@ export type SessionInfo = { title?: string; project?: string }
 export const VERSION = 2
 
 // `page`: when stats.html was last written; an open page that sees it change reloads whole for the new code.
-export const statsData = (logged: Entry[], today: string, rateLimits: readonly SessionRateLimit[] = [], built?: Built, info: Record<string, SessionInfo> = {}, page = 0) => {
+export const statsData = (logged: Entry[], today: string, rateLimits: readonly SessionRateLimit[] = [], built?: Built, info: Record<string, SessionInfo> = {}, page = 0, history: Reading[] = []) => {
   const entries = fillProjects(logged, info)
-  const data = { version: VERSION, page, today, ...rollup(entries), limits: rateLimits, built: built ?? null, projects: [] as [string, number][] }
+  const data = { version: VERSION, page, today, ...rollup(entries), limits: rateLimits, history: [...history].sort((a, b) => a[0].localeCompare(b[0])), built: built ?? null, projects: [] as [string, number][] }
   for (const [session, i] of Object.entries(info)) if (i.title && !data.titles[session]) data.titles[session] = i.title
   // Projects by their last day of use, the most recent first, each with its all-time tokens.
   const projects = new Map<string, { last: string; tokens: number }>()
@@ -158,9 +173,9 @@ export const statsPage = () => `<!doctype html>
 <title>Claude usage</title>
 <script>try { const t = localStorage.getItem('usage-theme'); if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t) } catch {} // the chosen theme before the first paint, so a reload never flashes the other one</script>
 <style>
-:root{--bg:#fafaf9;--fg:#1c1917;--dim:#78716c;--line:#e7e5e4;--card:#fff;--bar:#d97757;--hover:#f5f5f4;--up:#b45309;--down:#15803d}
-@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#1c1917;--fg:#f5f5f4;--dim:#a8a29e;--line:#44403c;--card:#292524;--bar:#e08a6d;--hover:#292524;--up:#fbbf24;--down:#4ade80}}
-:root[data-theme=dark]{--bg:#1c1917;--fg:#f5f5f4;--dim:#a8a29e;--line:#44403c;--card:#292524;--bar:#e08a6d;--hover:#292524;--up:#fbbf24;--down:#4ade80}
+:root{--bg:#fafaf9;--fg:#1c1917;--dim:#78716c;--line:#e7e5e4;--card:#fff;--bar:#d97757;--bar2:#2563eb;--hover:#f5f5f4;--up:#b45309;--down:#15803d}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#1c1917;--fg:#f5f5f4;--dim:#a8a29e;--line:#44403c;--card:#292524;--bar:#e08a6d;--bar2:#60a5fa;--hover:#292524;--up:#fbbf24;--down:#4ade80}}
+:root[data-theme=dark]{--bg:#1c1917;--fg:#f5f5f4;--dim:#a8a29e;--line:#44403c;--card:#292524;--bar:#e08a6d;--bar2:#60a5fa;--hover:#292524;--up:#fbbf24;--down:#4ade80}
 :root{color-scheme:light}:root[data-theme=dark]{color-scheme:dark}
 @media (prefers-color-scheme:dark){:root:not([data-theme=light]){color-scheme:dark}}
 body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 system-ui,sans-serif}
@@ -180,8 +195,8 @@ h1{font-size:20px;margin:0 0 4px}h2{font-size:15px;margin:32px 0 8px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
 .label,.sub{color:var(--dim);font-size:12px}.value{font-size:20px;font-weight:600}
 .delta{font-size:12px;font-weight:500;margin-left:6px}.delta.up{color:var(--up)}.delta.down{color:var(--down)}
-svg{width:100%;height:auto;display:block}#chart svg{aspect-ratio:840/182}#breakdown,#sessions{min-height:120px}svg text{fill:var(--dim);font-size:10px}
-.line{fill:none;stroke:var(--bar);stroke-width:2;stroke-linejoin:round;pointer-events:none}.area{fill:var(--bar);opacity:.15;pointer-events:none}.grid{stroke:var(--line);pointer-events:none}.axis{pointer-events:none}.dot{fill:var(--bar);opacity:0}.day:hover .dot{opacity:1}
+svg{width:100%;height:auto;display:block}.chart svg{aspect-ratio:840/182}#breakdown,#sessions{min-height:120px}svg text{fill:var(--dim);font-size:10px}
+.line{fill:none;stroke:var(--bar);stroke-width:2;stroke-linejoin:round;pointer-events:none}.area{fill:var(--bar);opacity:.15;pointer-events:none}.grid{stroke:var(--line);pointer-events:none}.axis{pointer-events:none}.dot{fill:var(--bar);opacity:0}.lim{fill:none;stroke-width:2}.legend{display:flex;gap:14px;color:var(--dim);font-size:12px}.legend i{display:inline-block;width:10px;height:3px;border-radius:2px;margin-right:6px;vertical-align:middle}.day:hover .dot{opacity:1}
 .meter{height:6px;border-radius:3px;background:var(--line);margin:6px 0 4px;overflow:hidden}.meter i{display:block;height:100%;background:var(--bar)}
 .scroll{overflow-x:auto}
 table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
@@ -213,6 +228,8 @@ main>h2:first-child{margin-top:0}
 <div class="cards" id="kpis">${PLACEHOLDER_KPIS}</div>
 <div class="head"><h2 id="chart-title">&nbsp;</h2>${seg('step', STEPS)}${seg('metric', METRICS)}</div>
 <div class="chart" id="chart"><svg role="img"></svg><div class="tip" hidden></div></div>
+<div class="head"><h2>Rate limit usage</h2><div class="legend" id="limit-legend"></div></div>
+<div class="chart" id="limit-chart"><svg role="img"></svg></div>
 <h2>Breakdown</h2>
 <div class="group">Group by <label><input type="checkbox" data-group="day"> Day</label><label><input type="checkbox" data-group="model"> Model</label></div>
 <div class="scroll" id="breakdown"></div>
@@ -423,6 +440,44 @@ const draw = () => {
   const pts = values.map((v, i) => px(i).toFixed(1) + ',' + py(v).toFixed(1))
   const line = pts.length ? '<path class="area" d="M' + px(0) + ',' + H + 'L' + pts.join('L') + 'L' + px(pts.length - 1) + ',' + H + 'Z"/><path class="line" d="M' + pts.join('L') + '"/>' : ''
   svg.innerHTML = columns + grid + line // the grid over the columns, so a hovered column does not hide its labels
+
+  // Rate limits over the period: each window's percent as last read, held until the next reading, and 0
+  // from a reset that passed before it. They are the account's, so the project choice does not apply.
+  const start = new Date(days[0] + 'T00:00').getTime(), end = Math.max(start + 1, now)
+  const hist = (DATA.history || []).filter(r => Date.parse(r[0]) <= end)
+  const lx = t => ((t - start) / (end - start)) * W, ly = p => H - (Math.min(p, 100) / 100) * (H - 6)
+  const series = kind => {
+    const pts = []
+    let reset = 0
+    for (const r of hist) if (r[1] === kind) {
+      const t = Date.parse(r[0])
+      if (reset && reset < t) pts.push([reset, 0])
+      pts.push([t, r[2]])
+      reset = r[3] ? Date.parse(r[3]) : 0
+    }
+    if (reset && reset < end) pts.push([reset, 0])
+    const before = pts.filter(p => p[0] < start).at(-1), inside = pts.filter(p => p[0] >= start)
+    return before ? [[start, before[1]]].concat(inside) : inside
+  }
+  const kinds = Object.keys(LIMIT_NAME).concat([...new Set(hist.map(r => r[1]))]).filter((k, i, all) => all.indexOf(k) === i && hist.some(r => r[1] === k))
+  const COLOR = ['var(--bar)', 'var(--bar2)', 'var(--dim)']
+  const lsvg = document.querySelector('#limit-chart svg')
+  lsvg.setAttribute('viewBox', '0 0 ' + W + ' ' + (H + 22))
+  lsvg.setAttribute('aria-label', 'Rate limit usage, ' + when)
+  const lgrid = [100, 50].map(p => '<line class="grid" x1="0" x2="' + W + '" y1="' + ly(p) + '" y2="' + ly(p) + '"/><text class="axis" x="2" y="' + (ly(p) + 12) + '">' + p + '%</text>').join('') + '<line class="grid" x1="0" x2="' + W + '" y1="' + H + '" y2="' + H + '"/>'
+  const ticks = [...shown].map(i => '<text x="' + lx(new Date(buckets[i].d + 'T' + hm(buckets[i].h)).getTime()) + '" y="' + (H + 16) + '" text-anchor="middle">' + (days.length === 1 ? hm(buckets[i].h) : buckets[i].d.slice(5)) + '</text>').join('')
+  const lines = kinds.map((k, n) => {
+    const pts = series(k), color = COLOR[Math.min(n, COLOR.length - 1)]
+    if (!pts.length) return ''
+    const d = 'M' + lx(pts[0][0]).toFixed(1) + ',' + ly(pts[0][1]).toFixed(1) + pts.slice(1).map(p => 'H' + lx(p[0]).toFixed(1) + 'V' + ly(p[1]).toFixed(1)).join('') + 'H' + W
+    const dots = hist.filter(r => r[1] === k && Date.parse(r[0]) >= start).map(r => '<circle class="reading" cx="' + lx(Date.parse(r[0])).toFixed(1) + '" cy="' + ly(r[2]).toFixed(1) + '" r="2.5" style="fill:' + color + '"><title>' + esc(shortTime(new Date(r[0])) + ' · ' + (LIMIT_NAME[k] || k) + ' ' + r[2] + '%') + '</title></circle>').join('')
+    return '<path class="lim" style="stroke:' + color + '" d="' + d + '"/>' + dots
+  }).join('')
+  lsvg.innerHTML = lgrid + ticks + (kinds.length ? lines : '<text x="' + W / 2 + '" y="' + H / 2 + '" text-anchor="middle">No rate-limit readings logged in this period yet.</text>')
+  document.getElementById('limit-legend').innerHTML = kinds.map((k, n) => {
+    const pts = series(k)
+    return '<span><i style="background:' + COLOR[Math.min(n, COLOR.length - 1)] + '"></i>' + esc(LIMIT_NAME[k] || k) + (pts.length ? ' ' + pts.at(-1)[1] + '%' : '') + '</span>'
+  }).join('')
 
   // The breakdown: rows grouped by day, model, both, or neither. A turn has no model, so a grouping by
   // model leaves turns and agent time out.

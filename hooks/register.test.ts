@@ -2,7 +2,7 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { On } from 'claude-code/testing'
 
 import { count, day, format, left, limit, ROLL_BYTES, WIDGET_VERSION } from './register'
-import { statsData, statsScript } from './stats'
+import { parseLimits, parseLog, statsData, statsScript } from './stats'
 
 const NOW = Date.parse('2026-11-13T12:00:00Z')
 const TODAY = day(NOW)
@@ -147,7 +147,15 @@ test('responses add tokens mid-turn, a measure shares its limits, and today sums
   expect(log).toEqual([
     { t: '2026-11-13T12:00:00.000Z', session: 'this', project: 'alpha', model: 'm', ...tokens, cost: 0 },
     { t: '2026-11-13T12:00:00.000Z', session: 'this', project: 'alpha', agent: 'a1', model: 'm', ...tokens, cost: 0 },
+    // The measure's limits differ from the shared ones (none yet), so they are logged once.
+    { t: '2026-11-13T12:00:00.000Z', limits: [{ kind: 'five_hour', percent: 4, resetsAt: '2026-11-13T15:23:00Z' }, { kind: 'seven_day', percent: 10, resetsAt: '2026-11-17T20:00:00Z' }] },
   ])
+  // The same reading again logs nothing; a reading counts as no response, and reaches the page's history.
+  await $.session.measure({ context: { window: 200_000 }, rateLimits: LIMITS, cost: { usd: 5.72 }, changed: [] })
+  expect(logs(files).flatMap(p => files[p]!.split('\n')).filter(l => l.includes('"limits"'))).toHaveLength(1)
+  const data = statsData(parseLog(TODAY, text), TODAY, [], undefined, {}, 0, parseLimits(text))
+  expect(data.rows.reduce((n: number, r: { r: number }) => n + r.r, 0)).toBe(2)
+  expect(data.history).toEqual([['2026-11-13T12:00:00.000Z', 'five_hour', 4, '2026-11-13T15:23:00Z'], ['2026-11-13T12:00:00.000Z', 'seven_day', 10, '2026-11-17T20:00:00Z']])
 })
 
 test('/usage-stats builds the page from every day\'s logs and opens it', async ($, on) => {

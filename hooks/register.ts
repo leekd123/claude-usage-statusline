@@ -1,6 +1,6 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, SessionRateLimit, SessionUsage } from 'claude-code'
-import { NO_PROJECT, parseLog, statsData, statsPage, statsScript } from './stats'
+import { NO_PROJECT, parseLimits, parseLog, statsData, statsPage, statsScript } from './stats'
 import type { Entry, SessionInfo } from './stats'
 
 const LABEL: Record<string, string> = { five_hour: '5h', seven_day: '7d', spend_limit: 'spend' }
@@ -182,6 +182,7 @@ const writeStats = async ($: EngineInterface, page = false) => {
   const files = (await $.fs.list(dir).catch(() => [])).filter(f => f.kind === 'file' && f.name.endsWith('.jsonl'))
   const texts = await Promise.all(files.map(f => $.fs.read(`${dir}/${f.name}`).catch(() => '')))
   const entries = files.flatMap((f, i) => parseLog(f.name.slice(0, 10), texts[i] ?? ''))
+  const history = texts.flatMap(text => parseLimits(text ?? ''))
   const now = await $.clock.now()
   // Today's agent time, from the logs as the page counts it, for the widget.
   await $.store.set('time', { day: day(now), ms: entries.reduce((n, e) => n + (e.day === day(now) ? e.ms : 0), 0) })
@@ -198,7 +199,7 @@ const writeStats = async ($: EngineInterface, page = false) => {
     }
   }
   const pageAt = Number((await $.store.get('page')) ?? 0)
-  const data = statsData(entries, day(now), (await sharedLimits($)) ?? [], { ms: now - started, lines: entries.length, files: files.length }, info, pageAt)
+  const data = statsData(entries, day(now), (await sharedLimits($)) ?? [], { ms: now - started, lines: entries.length, files: files.length }, info, pageAt, history)
   await $.fs.write(`${dir}/data.js`, statsScript(data))
   return file
 }
@@ -374,11 +375,17 @@ export const register: Register = on => {
     return { text: started ? 'Usage widget opened' : 'usage-statusline: could not start the usage widget' }
   })
 
-  // A measurement carries the fresh rate-limit reading: share it with every session.
+  // A measurement carries the fresh rate-limit reading: share it with every session, and log it when it
+  // differs from the shared one, so the page can draw the limits over time without a line per response.
   on('session.measure', async ($, e, next) => {
     const now = await $.clock.now()
     cost = e.cost?.usd ?? cost
-    if (e.rateLimits.length > 0) await $.store.set('limits', e.rateLimits)
+    if (e.rateLimits.length > 0) {
+      const percents = (l?: readonly SessionRateLimit[]) => JSON.stringify(l?.map(r => [r.kind, r.percentUsed]))
+      const changed = percents(await sharedLimits($)) !== percents(e.rateLimits)
+      await $.store.set('limits', e.rateLimits)
+      if (changed) await log($, { t: new Date(now).toISOString(), limits: e.rateLimits.map(r => ({ kind: r.kind, percent: r.percentUsed, resetsAt: r.resetsAt ?? null })) }, now)
+    }
     await show($, now)
     return next(e)
   })
