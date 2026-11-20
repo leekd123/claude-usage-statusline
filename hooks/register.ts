@@ -298,6 +298,9 @@ const show = async ($: EngineInterface, now: number) => {
   }
   $.ui.status(format(line, now))
   if (windows) await writeWidget($, line, now).catch(() => {})
+  // Here, not only on a measure: a measure need not carry the limits when they have not changed, and this
+  // runs on every response and each minute, with the reading any session took last.
+  if (line.rateLimits.length > 0) await logLimits($, line.rateLimits, now)
 }
 
 export const register: Register = on => {
@@ -384,14 +387,11 @@ export const register: Register = on => {
     return { text: started ? 'Usage widget opened' : 'usage-statusline: could not start the usage widget' }
   })
 
-  // A measurement carries the fresh rate-limit reading: share it with every session, and log it.
+  // A measurement carries the fresh rate-limit reading: share it with every session (show logs it).
   on('session.measure', async ($, e, next) => {
     const now = await $.clock.now()
     cost = e.cost?.usd ?? cost
-    if (e.rateLimits.length > 0) {
-      await $.store.set('limits', e.rateLimits)
-      await logLimits($, e.rateLimits, now)
-    }
+    if (e.rateLimits.length > 0) await $.store.set('limits', e.rateLimits)
     await show($, now)
     return next(e)
   })
