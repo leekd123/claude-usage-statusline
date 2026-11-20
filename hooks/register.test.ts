@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { On } from 'claude-code/testing'
 
-import { count, day, format, left, limit, ROLL_BYTES } from './register'
+import { count, day, format, left, limit, ROLL_BYTES, WIDGET_VERSION } from './register'
 import { statsData, statsScript } from './stats'
 
 const NOW = Date.parse('2026-11-13T12:00:00Z')
@@ -396,4 +396,52 @@ test('the desktop app scratch folders show as one project', () => {
   )
   expect(data.rows.map(r => [r.s, r.p])).toEqual([['a', '(scratch)'], ['b', '(scratch)'], ['c', 'scratch-pad'], ['d', '(scratch)']])
   expect(data.projects).toContainEqual(['(scratch)', 3])
+})
+
+test('on Windows the widget reads today\'s figures from widget.json and starts unless the person closed it', async ($, on) => {
+  // The widget the mod ships, wherever the plugin's folder is, and its copy once `copy` made it (the
+  // engine hands the hooks absolute paths, the commands get them as the mod spelled them).
+  let copied = false
+  const exes = (k: string) => /[\\/]bin[\\/]usage-widget\.exe$/.test(k) || (copied && k.endsWith(`usage-widget-${WIDGET_VERSION}.exe`))
+  const files = new Proxy<Record<string, string>>({}, { get: (t, k: string) => (exes(k) ? 'exe' : t[k]) })
+  const ran: string[][] = []
+  engine(on, {}, [], files, undefined, true, true) // on Windows
+  api(on)
+  on('process.run', (_, e) => {
+    ran.push([...e.argv])
+    if (e.argv[2] === 'copy') copied = true // cmd /c copy /y <from> <to>
+    return { value: { exitCode: 1, stdout: '', stderr: '' } }
+  })
+  on('command.run', () => ({ text: '' }))
+  on('turn.complete', () => ({ text: '' }))
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  const json = Object.keys(files).find(k => k.endsWith('widget.json'))!
+  const dir = json.slice(0, -'widget.json'.length)
+  // Commands get native paths: backslashes only.
+  const exe = 'usage-statusline' + String.fromCharCode(92) + `usage-widget-${WIDGET_VERSION}.exe`
+  expect(ran.map(a => a[0])).toEqual(['cmd', 'explorer.exe'])
+  expect(ran[1]![1]!.endsWith(exe) && !ran[1]![1]!.includes('/')).toBe(true)
+
+  await drain($.turn.step({ ...step, index: 0 }))
+  await $.turn.complete({ answer: '', durationMs: 90_000, isAborted: false, turnId: 't', reason: 'answer' })
+  const widget = JSON.parse(files[json]!)
+  expect(widget).toMatchObject({ version: WIDGET_VERSION, at: NOW, tokensToday: 50_000, timeToday: 90_000 })
+  expect(widget.stats.endsWith('usage-statusline' + String.fromCharCode(92) + 'stats.html')).toBe(true)
+
+  // Closed by the person: a new session leaves it closed; /usage-widget opens it again.
+  ran.length = 0
+  files[`${dir}widget.closed`] = 'closed'
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  expect(ran).toEqual([])
+  await $.command.run({ command: 'usage-widget', args: '' })
+  expect(files[`${dir}widget.closed`]).toBe('')
+  expect(ran.map(a => a[0])).toEqual(['explorer.exe']) // the copy is there already
+
+  // A copy under this version's name that differs from the shipped file (bin/ rebuilt) is copied again.
+  ran.length = 0
+  copied = false
+  files[`${dir}usage-widget-${WIDGET_VERSION}.exe`] = 'an older build'
+  await $.command.run({ command: 'usage-widget', args: '' })
+  expect(ran.map(a => a[0])).toEqual(['cmd', 'explorer.exe'])
 })

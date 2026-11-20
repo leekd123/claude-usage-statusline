@@ -54,6 +54,33 @@ The browser remembers every choice. The sidebar's foot also links to this reposi
 - `data.js` holds the log summed per day, project, session and model, and the page's own script draws from that. Changing a choice needs no rebuild.
 - The sidebar's foot shows how long the last build took and how many lines it read. Every build reads the whole log, so if that time grows past a second or so, the build is due to keep per-day sums instead.
 
+## Desktop widget (Windows)
+
+A small translucent window on the desktop with the same figures, kept apart from Claude: `bin/usage-widget.exe`, a Rust program of about 200 KB that makes no network requests of its own. It shows what the mod last wrote, so while Claude is closed it keeps those figures and counts down to each reset, and it moves again once a session has a response.
+
+**Starting and stopping**
+
+- A session starts it when the session starts, unless you closed it. A second start brings the running one forward instead of opening another.
+- `/usage-widget` opens it again after you closed it.
+- **Start with Windows**, in its menu, starts it when you sign in to Windows, whether or not you closed it before.
+- **Exit**, in its menu, closes it until `/usage-widget` or the next Windows sign-in. **Close when Claude closes** closes it about three minutes after the last session ends; the next session starts it again.
+- It keeps running when Claude closes: Explorer starts it, not Claude.
+
+**Using it**
+
+- Drag it anywhere. Double-click it to open the statistics page; right-click it for the menu.
+- **Items**: 5h and 7d usage, the time to each reset, and today's cost, tokens and agent time. A turn's agent time is added when the turn ends.
+- **Usage bars**: a bar under each usage item, across its label and figure, so the whole item is 100%. Green, amber from 70% and red from 90%. On unless you turn it off under Appearance.
+- **Appearance**: horizontal or vertical, usage bars and their thickness (Thin, Medium, Thick or Extra thick), font, System, Dark or Light theme or your own text and background colors, and 70, 85 or 100% opacity.
+- **Always on top**: on unless you turn it off.
+- Its size changes only when the items, font or layout do, never as the figures change: each cell is as wide as its widest value. Against the right or bottom edge of a screen, it stays against that edge.
+
+**Files**
+
+- Settings: `%APPDATA%\usage-widget\settings.json`. An edit there shows within a second.
+- The mod writes `widget.json` next to the usage log on every redraw, so its time doubles as a heartbeat. `widget.closed` says whether you closed the widget.
+- The widget runs as a copy next to the log, `usage-widget-<version>.exe`, so a plugin update can replace `bin/usage-widget.exe` while it runs. A newer copy closes an older one that is running and takes its place, and removes older copies when it starts.
+
 ## Usage log
 
 Every model response that reports usage adds one JSON line to a file per local day and session:
@@ -119,4 +146,14 @@ claude plugin validate .
 
 ```bash
 claude plugin test .
+```
+
+The widget, after a change to `widget/`: build it and put the result in `bin/`, which is what the mod ships. Raise its version in `widget/Cargo.toml` and `WIDGET_VERSION` in `hooks/register.ts` together, so sessions copy and start the new one.
+
+```bash
+cargo test --manifest-path widget/Cargo.toml
+```
+
+```bash
+cargo build --release --manifest-path widget/Cargo.toml && cp widget/target/release/usage-widget.exe bin/
 ```

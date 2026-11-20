@@ -201,6 +201,54 @@ const writeStats = async ($: EngineInterface, page = false) => {
   return file
 }
 
+// The desktop widget, Windows only: bin/usage-widget.exe, a separate program that outlives Claude. It reads
+// widget.json, written here on each redraw (the minute timer's too, so `at` is a heartbeat), and it runs as a
+// copy named by its version next to the logs, so the repository's file is never locked while it runs and an
+// update can replace it. The widget keeps its own settings; widget.closed says the person closed it ($.fs
+// cannot delete, so the file's text says it: "closed", or empty once /usage-widget opens it again).
+export const WIDGET_VERSION = '0.1.2'
+let windows = false
+// A path for a program outside: absolute as the file system resolves it (HOME may be a POSIX spelling), backslashes.
+const native = async ($: EngineInterface, path: string) => ((await realPath($, path)) ?? path).replaceAll('/', '\\')
+
+const writeWidget = async ($: EngineInterface, line: Line, now: number) => {
+  const dir = await logDir($)
+  const widget = {
+    version: WIDGET_VERSION,
+    at: now,
+    // Times as epoch ms, so the widget parses no dates.
+    limits: line.rateLimits.map(r => ({ kind: r.kind, percent: r.percentUsed, resetsAt: r.resetsAt ? Date.parse(r.resetsAt) : null })),
+    costToday: line.costToday,
+    tokensToday: line.tokensToday,
+    timeToday: await sumToday($, 'ms', now),
+    stats: `${await native($, dir)}\\stats.html`, // the folder resolves before the page is first written
+  }
+  await $.fs.write(`${dir}/widget.json`, JSON.stringify(widget))
+}
+
+// Starts the widget unless the person closed it (`open`: /usage-widget, which opens it again). explorer.exe
+// starts it, so it is Explorer's child and nothing of Claude's: it outlives the session. A second copy
+// started while one runs brings that one forward and exits.
+const startWidget = async ($: EngineInterface, open = false) => {
+  const dir = await logDir($)
+  const closed = `${dir}/widget.closed`
+  if (open) await $.fs.write(closed, '')
+  else if ((await $.fs.read(closed).catch(() => '')).trim() === 'closed') return false
+  const exe = `${dir}/usage-widget-${WIDGET_VERSION}.exe`
+  const shipped = `${$.plugin.root}/bin/usage-widget.exe`
+  // copy keeps the file's time, so a copy that differs in size or time from the shipped file is an older
+  // build under this version's name (bin/ rebuilt without a new version); one still running is locked and stays.
+  const from = await $.fs.stat(shipped).catch(() => undefined)
+  const have = await $.fs.stat(exe).catch(() => undefined)
+  if (from && (!have || have.size !== from.size || have.mtimeMs !== from.mtimeMs)) {
+    const to = `${await native($, dir)}\\usage-widget-${WIDGET_VERSION}.exe`
+    await $.process.run(['cmd', '/c', 'copy', '/y', await native($, shipped), to]) // $.fs writes text only
+  }
+  if (!(await $.fs.exists(exe))) return false
+  await $.process.run(['explorer.exe', await native($, exe)]) // exits 1 even when it started the program
+  return true
+}
+
 // Builds the page fresh and opens it in the browser.
 const openStats = async ($: EngineInterface) => {
   const file = await writeStats($)
@@ -228,24 +276,23 @@ const log = ($: EngineInterface, entry: Record<string, unknown>, now: number) =>
 const show = async ($: EngineInterface, now: number) => {
   const used = await read($, tokens)
   await adding
-  $.ui.status(
-    format(
-      {
-        rateLimits: (await sharedLimits($)) ?? [],
-        cost,
-        costToday: (await sumToday($, 'cost', now)) + Math.max(0, cost - costLogged), // measured, not yet on a line
-        tokens: used,
-        tokensToday: await sumToday($, 'tok', now),
-      },
-      now,
-    ),
-  )
+  const line: Line = {
+    rateLimits: (await sharedLimits($)) ?? [],
+    cost,
+    costToday: (await sumToday($, 'cost', now)) + Math.max(0, cost - costLogged), // measured, not yet on a line
+    tokens: used,
+    tokensToday: await sumToday($, 'tok', now),
+  }
+  $.ui.status(format(line, now))
+  if (windows) await writeWidget($, line, now).catch(() => {})
 }
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     const ran = await next(e)
     await $.command.register({ name: 'usage-stats', description: 'Open usage statistics from the daily logs in the browser' })
+    windows = (await $.env.get('OS')) === 'Windows_NT'
+    if (windows) await $.command.register({ name: 'usage-widget', description: 'Open the usage widget on the desktop' })
     const now = await $.clock.now()
     const usage = await $.session.usage()
     cost = usage.cost?.usd ?? 0
@@ -253,6 +300,7 @@ export const register: Register = on => {
     // An earlier reading of this session's seeds the shared one only where none is kept yet.
     if (usage.rateLimits.length > 0 && !(await sharedLimits($))) await $.store.set('limits', usage.rateLimits)
     await show($, now)
+    if (windows) await startWidget($).catch(() => false) // after show, so the widget's first read finds widget.json
     // The page's code and its data, so a /reload-plugins puts this code's page in place at once and other
     // sessions' builds leave it there; not awaited, it reads every log.
     void writeStats($, true).catch(() => {})
@@ -307,6 +355,8 @@ export const register: Register = on => {
       const now = await $.clock.now()
       const session = await $.session.id()
       await log($, { t: new Date(now).toISOString(), session, project: await project($), turn: true, ms: e.durationMs, title: await title($) }, now)
+      await add($, 'ms', e.durationMs, now) // today's agent time, for the widget
+      await show($, now)
       await writeStats($).catch(() => {})
     }
     return ran
@@ -315,6 +365,11 @@ export const register: Register = on => {
   on('command.run', { command: 'usage-stats' }, async $ => {
     const file = await openStats($).catch(() => undefined)
     return { text: file ? `Usage statistics opened: ${file}` : 'usage-statusline: could not build or open the statistics page' }
+  })
+
+  on('command.run', { command: 'usage-widget' }, async $ => {
+    const started = await startWidget($, true).catch(() => false)
+    return { text: started ? 'Usage widget opened' : 'usage-statusline: could not start the usage widget' }
   })
 
   // A measurement carries the fresh rate-limit reading: share it with every session.
