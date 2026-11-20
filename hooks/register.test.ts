@@ -208,14 +208,14 @@ test('/usage-stats builds the page from every day\'s logs and opens it', async (
   expect([...data.rows].sort((a, b) => (a.s + a.m).localeCompare(b.s + b.m))).toEqual([
     // An earlier day's line with no time and no project; the cut-off line is skipped.
     { d: '2026-11-01', h: 0, p: '(no project)', s: 'other', m: 'big', ...none, r: 1, i: 1, o: 2, cr: 3, cw: 4, c: 1.5, f: '', l: '' },
-    { d: TODAY, h: new Date(T).getHours(), p: 'alpha', s: 'this', m: '', ...none, n: 1, ms: 65_000, f: T, l: T }, // the main turn, not the subagent's
-    { d: TODAY, h: new Date(T).getHours(), p: 'alpha', s: 'this', m: 'm', ...none, r: 1, i: 1_000, o: 2_000, cr: 40_000, cw: 7_000, f: T, l: T },
+    { d: TODAY, h: new Date(T).getHours() + (new Date(T).getMinutes() >= 30 ? 0.5 : 0), p: 'alpha', s: 'this', m: '', ...none, n: 1, ms: 65_000, f: T, l: T }, // the main turn, not the subagent's
+    { d: TODAY, h: new Date(T).getHours() + (new Date(T).getMinutes() >= 30 ? 0.5 : 0), p: 'alpha', s: 'this', m: 'm', ...none, r: 1, i: 1_000, o: 2_000, cr: 40_000, cw: 7_000, f: T, l: T },
   ])
   // What the script draws into, and its choices: period, metric, grouping.
   for (const id of ['nav', 'built', 'limits', 'scope', 'kpis', 'chart', 'breakdown', 'sessions']) expect(page).toContain(`id="${id}"`)
   expect(page).toContain('<script src="data.js"></script>')
   expect(page!.indexOf("getItem('usage-theme')")).toBeLessThan(page!.indexOf('<body>')) // the theme is set before anything is painted
-  expect(page).toContain('<div class="seg" role="group" aria-label="period"><button data-period="1">Today</button><button data-period="7">7d</button><button data-period="30">30d</button><button data-period="90">90d</button><button data-period="0">All</button></div>')
+  expect(page).toContain('<div class="seg" role="group" aria-label="period"><button data-period="1">Today</button><button data-period="3">3d</button><button data-period="7">7d</button><button data-period="14">14d</button><button data-period="30">30d</button><button data-period="90">90d</button><button data-period="0">All</button></div>')
   expect(page).toContain('<button data-metric="turns">Turns</button><button data-metric="responses">Responses</button>')
   expect(data.limits).toEqual([]) // none shared in this store
   expect(page).toContain('<a class="repo" href="https://github.com/leekd123/claude-usage-statusline"')
@@ -334,8 +334,8 @@ test('a session begun before projects were logged counts under the project its l
   const data = statsData(
     [
       { ...line, session: 'a', project: '(no project)', t: '2026-11-18T00:00:00.000Z' }, // before the reload
-      { ...line, session: 'a', project: 'calc', t: '2026-11-18T00:30:00.000Z' },
-      { ...line, session: 'b', project: '(no project)', t: '2026-11-18T00:10:00.000Z' }, // never named one (the same hour, so one row each)
+      { ...line, session: 'a', project: 'calc', t: '2026-11-18T00:20:00.000Z' },
+      { ...line, session: 'b', project: '(no project)', t: '2026-11-18T00:10:00.000Z' }, // never named one (the same half hour, so one row each)
     ],
     '2026-11-18',
   )

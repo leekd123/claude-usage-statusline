@@ -68,7 +68,8 @@ export const rollup = (entries: Entry[]) => {
   const seen: Record<string, string> = {}
   for (const e of entries) {
     const m = e.turn ? '' : e.model
-    const h = e.t ? new Date(e.t).getHours() || 0 : 0 // local, the zone that named the day's file
+    // The local half hour (13.5: 13:30), in the zone that named the day's file; the chart's finest step.
+    const at = new Date(e.t), h = e.t ? at.getHours() + (at.getMinutes() >= 30 ? 0.5 : 0) || 0 : 0
     const key = [e.day, h, e.project, e.session, m].join('\n')
     let r = rows.get(key)
     if (!r) rows.set(key, (r = { d: e.day, h, p: e.project, s: e.session, m, r: 0, n: 0, ms: 0, i: 0, o: 0, cr: 0, cw: 0, c: 0, f: e.t, l: e.t }))
@@ -96,7 +97,9 @@ export const rollup = (entries: Entry[]) => {
 // How the page was built: the time it took and what it read, to tell when reading every log gets slow.
 export type Built = { ms: number; lines: number; files: number }
 
-export const PERIODS: [number, string][] = [[1, 'Today'], [7, '7d'], [30, '30d'], [90, '90d'], [0, 'All']]
+export const PERIODS: [number, string][] = [[1, 'Today'], [3, '3d'], [7, '7d'], [14, '14d'], [30, '30d'], [90, '90d'], [0, 'All']]
+// The chart's step in hours; 0 picks one for the period.
+export const STEPS: [number, string][] = [[0, 'Auto'], [0.5, '30m'], [1, '1h'], [2, '2h'], [3, '3h'], [4, '4h'], [6, '6h'], [12, '12h'], [24, '24h']]
 export const METRICS: [string, string][] = [['sessions', 'Sessions'], ['turns', 'Turns'], ['responses', 'Responses'], ['time', 'Agent time'], ['cost', 'Cost'], ['tokens', 'Tokens']]
 
 const seg = (name: string, items: [string | number, string][]) =>
@@ -178,7 +181,7 @@ h1{font-size:20px;margin:0 0 4px}h2{font-size:15px;margin:32px 0 8px}
 .label,.sub{color:var(--dim);font-size:12px}.value{font-size:20px;font-weight:600}
 .delta{font-size:12px;font-weight:500;margin-left:6px}.delta.up{color:var(--up)}.delta.down{color:var(--down)}
 svg{width:100%;height:auto;display:block}#chart svg{aspect-ratio:840/182}#breakdown,#sessions{min-height:120px}svg text{fill:var(--dim);font-size:10px}
-.line{fill:none;stroke:var(--bar);stroke-width:2;stroke-linejoin:round;pointer-events:none}.area{fill:var(--bar);opacity:.15;pointer-events:none}.grid{stroke:var(--line)}.dot{fill:var(--bar);opacity:0}.day:hover .dot{opacity:1}
+.line{fill:none;stroke:var(--bar);stroke-width:2;stroke-linejoin:round;pointer-events:none}.area{fill:var(--bar);opacity:.15;pointer-events:none}.grid{stroke:var(--line);pointer-events:none}.axis{pointer-events:none}.dot{fill:var(--bar);opacity:0}.day:hover .dot{opacity:1}
 .meter{height:6px;border-radius:3px;background:var(--line);margin:6px 0 4px;overflow:hidden}.meter i{display:block;height:100%;background:var(--bar)}
 .scroll{overflow-x:auto}
 table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
@@ -208,7 +211,7 @@ main>h2:first-child{margin-top:0}
 <div id="limits">${PLACEHOLDER_LIMITS}</div>
 <div class="top"><h2 id="scope">&nbsp;</h2>${seg('period', PERIODS)}</div>
 <div class="cards" id="kpis">${PLACEHOLDER_KPIS}</div>
-<div class="head"><h2 id="chart-title">&nbsp;</h2>${seg('metric', METRICS)}</div>
+<div class="head"><h2 id="chart-title">&nbsp;</h2>${seg('step', STEPS)}${seg('metric', METRICS)}</div>
 <div class="chart" id="chart"><svg role="img"></svg><div class="tip" hidden></div></div>
 <h2>Breakdown</h2>
 <div class="group">Group by <label><input type="checkbox" data-group="day"> Day</label><label><input type="checkbox" data-group="model"> Model</label></div>
@@ -359,9 +362,10 @@ const span = (from, to) => { const out = []; for (let d = from; d <= to; d = shi
 // breakdown's grouping; each kept in the browser.
 let project = ''
 try { project = localStorage.getItem('usage-project') || '' } catch {}
-const state = { project, period: kept('usage-period', 30), metric: kept('usage-metric', 'tokens'), groups: kept('usage-groups', { day: true, model: false }) }
+const state = { project, period: kept('usage-period', 30), metric: kept('usage-metric', 'tokens'), step: kept('usage-step', 0), groups: kept('usage-groups', { day: true, model: false }) }
 if (!DATA.rows.some(x => x.p === state.project)) state.project = ''
 if (!METRIC[state.metric]) state.metric = 'tokens'
+if (![0, 0.5, 1, 2, 3, 4, 6, 12, 24].includes(state.step)) state.step = 0
 
 const draw = () => {
   const scope = state.project ? DATA.rows.filter(x => x.p === state.project) : DATA.rows
@@ -376,6 +380,7 @@ const draw = () => {
   document.getElementById('scope').textContent = (state.project || 'All projects') + ' · ' + when
   for (const b of document.querySelectorAll('.side nav button')) b.setAttribute('aria-pressed', String(b.dataset.project === state.project))
   for (const b of document.querySelectorAll('[data-period]')) b.setAttribute('aria-pressed', String(Number(b.dataset.period) === n))
+  for (const b of document.querySelectorAll('[data-step]')) b.setAttribute('aria-pressed', String(Number(b.dataset.step) === state.step))
   for (const b of document.querySelectorAll('[data-metric]')) b.setAttribute('aria-pressed', String(b.dataset.metric === state.metric))
   for (const c of document.querySelectorAll('[data-group]')) c.checked = !!state.groups[c.dataset.group]
 
@@ -388,16 +393,17 @@ const draw = () => {
     return '<div class="card"><div class="label">' + NAME[key] + '</div><div class="value">' + show(v) + delta + '</div><div class="sub">' + note + '</div></div>'
   }).join('')
 
-  // The chart: the metric over the period as a line, in buckets sized to it (an hour for today, 3 hours
-  // for 7 days, 12 for 30, a day beyond), each bucket's column taking the hover. Buckets yet to come are left out.
+  // The chart: the metric over the period as a line, in buckets of the chosen step or, on Auto, one sized
+  // to the period (an hour for today, 2 hours for 3 days, 3 for 7, 6 for 14, 12 for 30, a day beyond), each bucket's column taking the hover. Buckets yet to come are left out.
   const [pick, show] = METRIC[state.metric]
-  const size = n === 1 ? 1 : n === 7 ? 3 : n === 30 ? 12 : 24
-  const per = size === 1 ? 'per hour' : size === 24 ? 'per day' : 'per ' + size + ' hours'
+  const size = state.step || (n === 1 ? 1 : n === 3 ? 2 : n === 7 ? 3 : n === 14 ? 6 : n === 30 ? 12 : 24)
+  const per = size === 0.5 ? 'per 30 minutes' : size === 1 ? 'per hour' : size === 24 ? 'per day' : 'per ' + size + ' hours'
+  const hm = h => pad(Math.floor(h)) + (h % 1 ? ':30' : ':00')
   document.getElementById('chart-title').textContent = NAME[state.metric] + ' ' + per + ', ' + when
   const perBucket = by(rows, x => x.d + ' ' + (x.h - (x.h % size)))
   const now = Date.now()
   const buckets = days.flatMap(d => Array.from({ length: 24 / size }, (_, k) => ({ d, h: k * size })))
-    .filter(b => new Date(b.d + 'T' + pad(b.h) + ':00').getTime() <= now)
+    .filter(b => new Date(b.d + 'T' + hm(b.h)).getTime() <= now)
   const values = buckets.map(b => pick(sum(perBucket.get(b.d + ' ' + b.h) || [])))
   const max = Math.max(1, ...values), W = 840, H = 160, step = W / Math.max(1, buckets.length)
   const px = i => i * step + step / 2, py = v => H - (v / max) * (H - 6)
@@ -407,16 +413,16 @@ const draw = () => {
   const svg = document.querySelector('#chart svg')
   svg.setAttribute('viewBox', '0 0 ' + W + ' ' + (H + 22))
   svg.setAttribute('aria-label', NAME[state.metric] + ' ' + per + ', ' + when)
-  const grid = [1, 0.5].map(f => '<line class="grid" x1="0" x2="' + W + '" y1="' + py(max * f) + '" y2="' + py(max * f) + '"/><text x="2" y="' + (py(max * f) - 3) + '">' + esc(show(max * f)) + '</text>').join('') + '<line class="grid" x1="0" x2="' + W + '" y1="' + H + '" y2="' + H + '"/>'
+  const grid = [1, 0.5].map(f => '<line class="grid" x1="0" x2="' + W + '" y1="' + py(max * f) + '" y2="' + py(max * f) + '"/><text class="axis" x="2" y="' + (py(max * f) + 12) + '">' + esc(show(max * f)) + '</text>').join('') + '<line class="grid" x1="0" x2="' + W + '" y1="' + H + '" y2="' + H + '"/>'
   const columns = buckets.map((b, i) => {
-    const at = size === 24 ? b.d : b.d + ' ' + pad(b.h) + ':00–' + pad(b.h + size) + ':00'
+    const at = size === 24 ? b.d : b.d + ' ' + hm(b.h) + '–' + hm(b.h + size)
     const tip = esc(at + ' · ' + show(values[i]) + ' ' + NAME[state.metric].toLowerCase())
-    const label = shown.has(i) ? '<text x="' + px(i) + '" y="' + (H + 16) + '" text-anchor="middle">' + (days.length === 1 ? pad(b.h) + ':00' : b.d.slice(5)) + '</text>' : ''
+    const label = shown.has(i) ? '<text x="' + px(i) + '" y="' + (H + 16) + '" text-anchor="middle">' + (days.length === 1 ? hm(b.h) : b.d.slice(5)) + '</text>' : ''
     return '<g class="day" data-tip="' + tip + '" aria-label="' + tip + '"><rect class="hit" x="' + i * step + '" y="0" width="' + step + '" height="' + H + '"/><circle class="dot" cx="' + px(i) + '" cy="' + py(values[i]) + '" r="3.5"/>' + label + '</g>'
   }).join('')
   const pts = values.map((v, i) => px(i).toFixed(1) + ',' + py(v).toFixed(1))
   const line = pts.length ? '<path class="area" d="M' + px(0) + ',' + H + 'L' + pts.join('L') + 'L' + px(pts.length - 1) + ',' + H + 'Z"/><path class="line" d="M' + pts.join('L') + '"/>' : ''
-  svg.innerHTML = grid + columns + line
+  svg.innerHTML = columns + grid + line // the grid over the columns, so a hovered column does not hide its labels
 
   // The breakdown: rows grouped by day, model, both, or neither. A turn has no model, so a grouping by
   // model leaves turns and agent time out.
@@ -452,6 +458,7 @@ document.getElementById('nav').onclick = e => {
   set('project', b.dataset.project)
 }
 for (const b of document.querySelectorAll('[data-period]')) b.onclick = () => set('period', Number(b.dataset.period), 'usage-period')
+for (const b of document.querySelectorAll('[data-step]')) b.onclick = () => set('step', Number(b.dataset.step), 'usage-step')
 for (const b of document.querySelectorAll('[data-metric]')) b.onclick = () => set('metric', b.dataset.metric, 'usage-metric')
 for (const c of document.querySelectorAll('[data-group]')) c.onchange = () => set('groups', Object.assign({}, state.groups, { [c.dataset.group]: c.checked }), 'usage-groups')
 const render = () => { drawSide(); drawLimits(); draw() }
