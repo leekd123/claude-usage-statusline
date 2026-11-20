@@ -21,10 +21,10 @@ export type Entry = {
   title?: string // a turn's session title as of its end
 }
 
-// The page's data: the logs summed per day (d), project (p), session (s) and model (m, '' for turn lines):
+// The page's data: the logs summed per day (d), local hour (h), project (p), session (s) and model (m, '' for turn lines):
 // responses r, turns n, agent time ms, the four token counts, cost c, and the first and last line's time.
 export type Row = {
-  d: string; p: string; s: string; m: string
+  d: string; h: number; p: string; s: string; m: string
   r: number; n: number; ms: number; i: number; o: number; cr: number; cw: number; c: number
   f: string; l: string
 }
@@ -68,9 +68,10 @@ export const rollup = (entries: Entry[]) => {
   const seen: Record<string, string> = {}
   for (const e of entries) {
     const m = e.turn ? '' : e.model
-    const key = [e.day, e.project, e.session, m].join('\n')
+    const h = e.t ? new Date(e.t).getHours() || 0 : 0 // local, the zone that named the day's file
+    const key = [e.day, h, e.project, e.session, m].join('\n')
     let r = rows.get(key)
-    if (!r) rows.set(key, (r = { d: e.day, p: e.project, s: e.session, m, r: 0, n: 0, ms: 0, i: 0, o: 0, cr: 0, cw: 0, c: 0, f: e.t, l: e.t }))
+    if (!r) rows.set(key, (r = { d: e.day, h, p: e.project, s: e.session, m, r: 0, n: 0, ms: 0, i: 0, o: 0, cr: 0, cw: 0, c: 0, f: e.t, l: e.t }))
     if (e.turn) {
       r.n++
       r.ms += e.ms
@@ -122,7 +123,7 @@ export const SCRATCH_PROJECT = '(scratch)'
 export type SessionInfo = { title?: string; project?: string }
 
 // What data.js carries. VERSION changes only when this shape does; a page meeting another asks for a reload.
-export const VERSION = 1
+export const VERSION = 2
 
 // `page`: when stats.html was last written; an open page that sees it change reloads whole for the new code.
 export const statsData = (logged: Entry[], today: string, rateLimits: readonly SessionRateLimit[] = [], built?: Built, info: Record<string, SessionInfo> = {}, page = 0) => {
@@ -177,7 +178,7 @@ h1{font-size:20px;margin:0 0 4px}h2{font-size:15px;margin:32px 0 8px}
 .label,.sub{color:var(--dim);font-size:12px}.value{font-size:20px;font-weight:600}
 .delta{font-size:12px;font-weight:500;margin-left:6px}.delta.up{color:var(--up)}.delta.down{color:var(--down)}
 svg{width:100%;height:auto;display:block}#chart svg{aspect-ratio:840/182}#breakdown,#sessions{min-height:120px}svg text{fill:var(--dim);font-size:10px}
-.bar{fill:var(--bar)}.none{fill:var(--line)}
+.line{fill:none;stroke:var(--bar);stroke-width:2;stroke-linejoin:round;pointer-events:none}.area{fill:var(--bar);opacity:.15;pointer-events:none}.grid{stroke:var(--line)}.dot{fill:var(--bar);opacity:0}.day:hover .dot{opacity:1}
 .meter{height:6px;border-radius:3px;background:var(--line);margin:6px 0 4px;overflow:hidden}.meter i{display:block;height:100%;background:var(--bar)}
 .scroll{overflow-x:auto}
 table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
@@ -271,7 +272,7 @@ const refresh = () => {
     s.remove()
     const d = window.USAGE
     if (!d || d === DATA) return // not there, or cut off mid-write: try again next time
-    if (!DATA || DATA.version !== 1 || d.version !== DATA.version || d.page !== DATA.page) location.reload()
+    if (!DATA || DATA.version !== ${VERSION} || d.version !== DATA.version || d.page !== DATA.page) location.reload()
     else { DATA = d; render() }
   }
   document.head.appendChild(s)
@@ -288,7 +289,7 @@ setInterval(() => {
 let DATA = window.USAGE
 const esc = s => String(s).replace(/[&<>"']/g, c => '&#' + c.charCodeAt(0) + ';')
 const fmt = n => n >= 1e9 ? (n / 1e9).toFixed(2) + 'B' : n >= 1e6 ? (n / 1e6).toFixed(2) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'k' : String(n)
-if (!DATA || DATA.version !== 1) {
+if (!DATA || DATA.version !== ${VERSION}) {
   document.querySelector('main').innerHTML = '<p class="note">' + (DATA ? 'This page and its data.js come from different versions of usage-statusline. Run /reload-plugins in a Claude Code session to rebuild both.' : 'No data.js next to this page yet. Run /usage-stats in a Claude Code session.') + '</p>'
   throw new Error('usage-statusline: no usable data.js')
 }
@@ -387,22 +388,35 @@ const draw = () => {
     return '<div class="card"><div class="label">' + NAME[key] + '</div><div class="value">' + show(v) + delta + '</div><div class="sub">' + note + '</div></div>'
   }).join('')
 
-  // The chart: the metric per day over the period, a bar per day, the whole column taking the hover.
+  // The chart: the metric over the period as a line, in buckets sized to it (an hour for today, 3 hours
+  // for 7 days, 12 for 30, a day beyond), each bucket's column taking the hover. Buckets yet to come are left out.
   const [pick, show] = METRIC[state.metric]
-  document.getElementById('chart-title').textContent = NAME[state.metric] + ' per day, ' + when
-  const perDay = by(rows, x => x.d)
-  const values = days.map(d => pick(sum(perDay.get(d) || [])))
-  const max = Math.max(1, ...values), W = 840, H = 160, step = W / days.length, w = Math.max(1, step * 0.8)
-  const every = Math.ceil(days.length / 8)
+  const size = n === 1 ? 1 : n === 7 ? 3 : n === 30 ? 12 : 24
+  const per = size === 1 ? 'per hour' : size === 24 ? 'per day' : 'per ' + size + ' hours'
+  document.getElementById('chart-title').textContent = NAME[state.metric] + ' ' + per + ', ' + when
+  const perBucket = by(rows, x => x.d + ' ' + (x.h - (x.h % size)))
+  const now = Date.now()
+  const buckets = days.flatMap(d => Array.from({ length: 24 / size }, (_, k) => ({ d, h: k * size })))
+    .filter(b => new Date(b.d + 'T' + pad(b.h) + ':00').getTime() <= now)
+  const values = buckets.map(b => pick(sum(perBucket.get(b.d + ' ' + b.h) || [])))
+  const max = Math.max(1, ...values), W = 840, H = 160, step = W / Math.max(1, buckets.length)
+  const px = i => i * step + step / 2, py = v => H - (v / max) * (H - 6)
+  // Labels: the hours on a single day, otherwise the days' starts; about 8 at most, the last always shown.
+  const marks = buckets.map((b, i) => i).filter(i => days.length === 1 || buckets[i].h === 0)
+  const every = Math.ceil(marks.length / 8), shown = new Set(marks.filter((_, k) => (marks.length - 1 - k) % every === 0))
   const svg = document.querySelector('#chart svg')
   svg.setAttribute('viewBox', '0 0 ' + W + ' ' + (H + 22))
-  svg.setAttribute('aria-label', NAME[state.metric] + ' per day, ' + when)
-  svg.innerHTML = days.map((d, i) => {
-    const bh = Math.round((values[i] / max) * H), x = i * step
-    const tip = esc(d + ' · ' + show(values[i]) + ' ' + NAME[state.metric].toLowerCase())
-    const label = (days.length - 1 - i) % every === 0 ? '<text x="' + (x + step / 2) + '" y="' + (H + 16) + '" text-anchor="middle">' + d.slice(5) + '</text>' : ''
-    return '<g class="day" data-tip="' + tip + '" aria-label="' + tip + '"><rect class="hit" x="' + x + '" y="0" width="' + step + '" height="' + H + '"/><rect x="' + (x + (step - w) / 2) + '" y="' + (H - bh) + '" width="' + w + '" height="' + Math.max(bh, 1) + '" rx="2" class="' + (bh ? 'bar' : 'none') + '"/>' + label + '</g>'
+  svg.setAttribute('aria-label', NAME[state.metric] + ' ' + per + ', ' + when)
+  const grid = [1, 0.5].map(f => '<line class="grid" x1="0" x2="' + W + '" y1="' + py(max * f) + '" y2="' + py(max * f) + '"/><text x="2" y="' + (py(max * f) - 3) + '">' + esc(show(max * f)) + '</text>').join('') + '<line class="grid" x1="0" x2="' + W + '" y1="' + H + '" y2="' + H + '"/>'
+  const columns = buckets.map((b, i) => {
+    const at = size === 24 ? b.d : b.d + ' ' + pad(b.h) + ':00–' + pad(b.h + size) + ':00'
+    const tip = esc(at + ' · ' + show(values[i]) + ' ' + NAME[state.metric].toLowerCase())
+    const label = shown.has(i) ? '<text x="' + px(i) + '" y="' + (H + 16) + '" text-anchor="middle">' + (days.length === 1 ? pad(b.h) + ':00' : b.d.slice(5)) + '</text>' : ''
+    return '<g class="day" data-tip="' + tip + '" aria-label="' + tip + '"><rect class="hit" x="' + i * step + '" y="0" width="' + step + '" height="' + H + '"/><circle class="dot" cx="' + px(i) + '" cy="' + py(values[i]) + '" r="3.5"/>' + label + '</g>'
   }).join('')
+  const pts = values.map((v, i) => px(i).toFixed(1) + ',' + py(v).toFixed(1))
+  const line = pts.length ? '<path class="area" d="M' + px(0) + ',' + H + 'L' + pts.join('L') + 'L' + px(pts.length - 1) + ',' + H + 'Z"/><path class="line" d="M' + pts.join('L') + '"/>' : ''
+  svg.innerHTML = grid + columns + line
 
   // The breakdown: rows grouped by day, model, both, or neither. A turn has no model, so a grouping by
   // model leaves turns and agent time out.

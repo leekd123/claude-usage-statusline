@@ -200,16 +200,16 @@ test('/usage-stats builds the page from every day\'s logs and opens it', async (
   // The data carries the logs summed per day, project, session and model ('' for turn lines), and each
   // session's latest title; the page's script draws the period, chart and tables from them.
   const data = dataOf(files[`${dir}data.js`])
-  expect(data.version).toBe(1)
+  expect(data.version).toBe(2)
   const T = '2026-11-13T12:00:00.000Z'
   const none = { r: 0, n: 0, ms: 0, i: 0, o: 0, cr: 0, cw: 0, c: 0 }
   expect(data.today).toBe(TODAY)
   expect(data.titles).toEqual({ this: 'Usage stats' }) // the latest grep found, from the turn line
   expect([...data.rows].sort((a, b) => (a.s + a.m).localeCompare(b.s + b.m))).toEqual([
     // An earlier day's line with no time and no project; the cut-off line is skipped.
-    { d: '2026-11-01', p: '(no project)', s: 'other', m: 'big', ...none, r: 1, i: 1, o: 2, cr: 3, cw: 4, c: 1.5, f: '', l: '' },
-    { d: TODAY, p: 'alpha', s: 'this', m: '', ...none, n: 1, ms: 65_000, f: T, l: T }, // the main turn, not the subagent's
-    { d: TODAY, p: 'alpha', s: 'this', m: 'm', ...none, r: 1, i: 1_000, o: 2_000, cr: 40_000, cw: 7_000, f: T, l: T },
+    { d: '2026-11-01', h: 0, p: '(no project)', s: 'other', m: 'big', ...none, r: 1, i: 1, o: 2, cr: 3, cw: 4, c: 1.5, f: '', l: '' },
+    { d: TODAY, h: new Date(T).getHours(), p: 'alpha', s: 'this', m: '', ...none, n: 1, ms: 65_000, f: T, l: T }, // the main turn, not the subagent's
+    { d: TODAY, h: new Date(T).getHours(), p: 'alpha', s: 'this', m: 'm', ...none, r: 1, i: 1_000, o: 2_000, cr: 40_000, cw: 7_000, f: T, l: T },
   ])
   // What the script draws into, and its choices: period, metric, grouping.
   for (const id of ['nav', 'built', 'limits', 'scope', 'kpis', 'chart', 'breakdown', 'sessions']) expect(page).toContain(`id="${id}"`)
@@ -334,8 +334,8 @@ test('a session begun before projects were logged counts under the project its l
   const data = statsData(
     [
       { ...line, session: 'a', project: '(no project)', t: '2026-11-18T00:00:00.000Z' }, // before the reload
-      { ...line, session: 'a', project: 'calc', t: '2026-11-18T04:00:00.000Z' },
-      { ...line, session: 'b', project: '(no project)', t: '2026-11-18T01:00:00.000Z' }, // never named one
+      { ...line, session: 'a', project: 'calc', t: '2026-11-18T00:30:00.000Z' },
+      { ...line, session: 'b', project: '(no project)', t: '2026-11-18T00:10:00.000Z' }, // never named one (the same hour, so one row each)
     ],
     '2026-11-18',
   )
