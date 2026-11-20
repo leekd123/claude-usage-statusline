@@ -112,7 +112,8 @@ export const rollup = (entries: Entry[]) => {
 // How the page was built: the time it took and what it read, to tell when reading every log gets slow.
 export type Built = { ms: number; lines: number; files: number }
 
-export const PERIODS: [number, string][] = [[1, 'Today'], [3, '3d'], [7, '7d'], [14, '14d'], [30, '30d'], [90, '90d'], [0, 'All']]
+// Below 0: the last so many hours, rolling.
+export const PERIODS: [number, string][] = [[1, 'Today'], [-12, '12h'], [-24, '1d'], [3, '3d'], [7, '7d'], [14, '14d'], [30, '30d'], [90, '90d'], [0, 'All']]
 // The chart's step in hours; 0 picks one for the period.
 export const STEPS: [number, string][] = [[0, 'Auto'], [0.5, '30m'], [1, '1h'], [2, '2h'], [3, '3h'], [4, '4h'], [6, '6h'], [12, '12h'], [24, '24h']]
 export const METRICS: [string, string][] = [['sessions', 'Sessions'], ['turns', 'Turns'], ['responses', 'Responses'], ['time', 'Agent time'], ['cost', 'Cost'], ['tokens', 'Tokens']]
@@ -259,6 +260,9 @@ for (const b of document.querySelectorAll('.theme button')) b.onclick = () => se
 
 // Rate limits: time left to each reset.
 const pad = n => String(n).padStart(2, '0')
+// A half hour as the logs give it (13.5) as 13:30, and a time's local day as YYYY-MM-DD.
+const hm = h => pad(Math.floor(h)) + (h % 1 ? ':30' : ':00')
+const localDay = t => { const d = new Date(t); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) }
 const shortTime = d => d.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 // Auto refresh: the mod rebuilds data.js as usage comes in, and the page loads it again every so often (a
 // minute unless chosen) to pick that up, counting down beside the button, which turns it off and on.
@@ -386,13 +390,17 @@ if (![0, 0.5, 1, 2, 3, 4, 6, 12, 24].includes(state.step)) state.step = 0
 
 const draw = () => {
   const scope = state.project ? DATA.rows.filter(x => x.p === state.project) : DATA.rows
-  const n = state.period
+  // A period of n days ending today (0: all time), or below 0 the last -n hours up to now, a row
+  // counting by its half hour's start.
+  const n = state.period, now = Date.now(), roll = n < 0 ? -n * 3600e3 : 0
   const first = scope.reduce((m, x) => (x.d < m ? x.d : m), DATA.today)
-  const days = n ? span(shift(DATA.today, 1 - n), DATA.today) : span(first, DATA.today)
-  const prevDays = n ? span(shift(DATA.today, 1 - 2 * n), shift(DATA.today, -n)) : []
+  const days = roll ? span(localDay(now - roll), DATA.today) : n ? span(shift(DATA.today, 1 - n), DATA.today) : span(first, DATA.today)
+  const prevDays = n > 0 ? span(shift(DATA.today, 1 - 2 * n), shift(DATA.today, -n)) : []
   const inDays = list => { const set = new Set(list); return scope.filter(x => set.has(x.d)) }
-  const rows = inDays(days), cur = sum(rows), prev = sum(inDays(prevDays))
-  const when = n === 1 ? 'today' : n ? 'last ' + n + ' days' : 'all time'
+  const within = (from, to) => scope.filter(x => { const t = new Date(x.d + 'T' + hm(x.h)).getTime(); return t >= from && t < to })
+  const rows = roll ? within(now - roll, now + 1) : inDays(days), cur = sum(rows)
+  const prev = sum(roll ? within(now - 2 * roll, now - roll) : inDays(prevDays))
+  const when = roll ? 'last ' + -n + ' hours' : n === 1 ? 'today' : n ? 'last ' + n + ' days' : 'all time'
 
   document.getElementById('scope').textContent = (state.project || 'All projects') + ' · ' + when
   for (const b of document.querySelectorAll('.side nav button')) b.setAttribute('aria-pressed', String(b.dataset.project === state.project))
@@ -406,26 +414,28 @@ const draw = () => {
     const [pick, show] = METRIC[key], v = pick(cur), p = pick(prev)
     const pct = p > 0 ? Math.round(((v - p) / p) * 100) : null
     const delta = pct === null ? '' : '<span class="delta ' + (pct >= 0 ? 'up' : 'down') + '">' + (pct >= 0 ? '↑' : '↓') + Math.abs(pct) + '%</span>'
-    const note = pct === null ? when : 'vs previous ' + (n === 1 ? 'day' : n + ' days')
+    const versus = 'vs previous ' + (roll ? -n + ' hours' : n === 1 ? 'day' : n + ' days')
+    const note = n === 0 ? when : pct === null ? versus + ' · no data' : versus
     return '<div class="card"><div class="label">' + NAME[key] + '</div><div class="value">' + show(v) + delta + '</div><div class="sub">' + note + '</div></div>'
   }).join('')
 
   // The chart: the metric over the period as a line, in buckets of the chosen step or, on Auto, one sized
-  // to the period (an hour for today, 2 hours for 3 days, 3 for 7, 6 for 14, 12 for 30, a day beyond), each bucket's column taking the hover. Buckets yet to come are left out.
+  // to the period (30 minutes for 12 hours, an hour for 1 day or today, 2 hours for 3 days, 3 for 7, 6 for 14, 12 for 30, a day beyond), each bucket's column taking the hover. Buckets yet to come are left out.
   const [pick, show] = METRIC[state.metric]
-  const size = state.step || (n === 1 ? 1 : n === 3 ? 2 : n === 7 ? 3 : n === 14 ? 6 : n === 30 ? 12 : 24)
+  const size = state.step || (n === -12 ? 0.5 : n === -24 || n === 1 ? 1 : n === 3 ? 2 : n === 7 ? 3 : n === 14 ? 6 : n === 30 ? 12 : 24)
   const per = size === 0.5 ? 'per 30 minutes' : size === 1 ? 'per hour' : size === 24 ? 'per day' : 'per ' + size + ' hours'
-  const hm = h => pad(Math.floor(h)) + (h % 1 ? ':30' : ':00')
   document.getElementById('chart-title').textContent = NAME[state.metric] + ' ' + per + ', ' + when
   const perBucket = by(rows, x => x.d + ' ' + (x.h - (x.h % size)))
-  const now = Date.now()
+  // A rolling period keeps the buckets that reach into it.
   const buckets = days.flatMap(d => Array.from({ length: 24 / size }, (_, k) => ({ d, h: k * size })))
-    .filter(b => new Date(b.d + 'T' + hm(b.h)).getTime() <= now)
+    .filter(b => { const t = new Date(b.d + 'T' + hm(b.h)).getTime(); return t <= now && (!roll || t + size * 3600e3 > now - roll) })
+  const hourly = days.length === 1 || roll > 0 // labels the hours, not the days
   const values = buckets.map(b => pick(sum(perBucket.get(b.d + ' ' + b.h) || [])))
   const max = Math.max(1, ...values), W = 840, H = 160, step = W / Math.max(1, buckets.length)
   const px = i => i * step + step / 2, py = v => H - (v / max) * (H - 6)
+  const inside = x => Math.min(Math.max(x, 16), W - 16) // an x-axis label's middle, kept far enough in that the label is not cut
   // Labels: the hours on a single day, otherwise the days' starts; about 8 at most, the last always shown.
-  const marks = buckets.map((b, i) => i).filter(i => days.length === 1 || buckets[i].h === 0)
+  const marks = buckets.map((b, i) => i).filter(i => hourly || buckets[i].h === 0)
   const every = Math.ceil(marks.length / 8), shown = new Set(marks.filter((_, k) => (marks.length - 1 - k) % every === 0))
   const svg = document.querySelector('#chart svg')
   svg.setAttribute('viewBox', '0 0 ' + W + ' ' + (H + 22))
@@ -434,7 +444,7 @@ const draw = () => {
   const columns = buckets.map((b, i) => {
     const at = size === 24 ? b.d : b.d + ' ' + hm(b.h) + '–' + hm(b.h + size)
     const tip = esc(at + ' · ' + show(values[i]) + ' ' + NAME[state.metric].toLowerCase())
-    const label = shown.has(i) ? '<text x="' + px(i) + '" y="' + (H + 16) + '" text-anchor="middle">' + (days.length === 1 ? hm(b.h) : b.d.slice(5)) + '</text>' : ''
+    const label = shown.has(i) ? '<text x="' + inside(px(i)) + '" y="' + (H + 16) + '" text-anchor="middle">' + (hourly ? hm(b.h) : b.d.slice(5)) + '</text>' : ''
     return '<g class="day" data-tip="' + tip + '" aria-label="' + tip + '"><rect class="hit" x="' + i * step + '" y="0" width="' + step + '" height="' + H + '"/><circle class="dot" cx="' + px(i) + '" cy="' + py(values[i]) + '" r="3.5"/>' + label + '</g>'
   }).join('')
   const pts = values.map((v, i) => px(i).toFixed(1) + ',' + py(v).toFixed(1))
@@ -443,7 +453,7 @@ const draw = () => {
 
   // Rate limits over the period: each window's percent as last read, held until the next reading, and 0
   // from a reset that passed before it. They are the account's, so the project choice does not apply.
-  const start = new Date(days[0] + 'T00:00').getTime(), end = Math.max(start + 1, now)
+  const start = roll ? now - roll : new Date(days[0] + 'T00:00').getTime(), end = Math.max(start + 1, now)
   const hist = (DATA.history || []).filter(r => Date.parse(r[0]) <= end)
   const lx = t => ((t - start) / (end - start)) * W, ly = p => H - (Math.min(p, 100) / 100) * (H - 6)
   const series = kind => {
@@ -465,7 +475,7 @@ const draw = () => {
   lsvg.setAttribute('viewBox', '0 0 ' + W + ' ' + (H + 22))
   lsvg.setAttribute('aria-label', 'Rate limit usage, ' + when)
   const lgrid = [100, 50].map(p => '<line class="grid" x1="0" x2="' + W + '" y1="' + ly(p) + '" y2="' + ly(p) + '"/><text class="axis" x="2" y="' + (ly(p) + 12) + '">' + p + '%</text>').join('') + '<line class="grid" x1="0" x2="' + W + '" y1="' + H + '" y2="' + H + '"/>'
-  const ticks = [...shown].map(i => '<text x="' + lx(new Date(buckets[i].d + 'T' + hm(buckets[i].h)).getTime()) + '" y="' + (H + 16) + '" text-anchor="middle">' + (days.length === 1 ? hm(buckets[i].h) : buckets[i].d.slice(5)) + '</text>').join('')
+  const ticks = [...shown].map(i => '<text x="' + inside(lx(new Date(buckets[i].d + 'T' + hm(buckets[i].h)).getTime())) + '" y="' + (H + 16) + '" text-anchor="middle">' + (hourly ? hm(buckets[i].h) : buckets[i].d.slice(5)) + '</text>').join('')
   const lines = kinds.map((k, n) => {
     const pts = series(k), color = COLOR[Math.min(n, COLOR.length - 1)]
     if (!pts.length) return ''
@@ -485,7 +495,7 @@ const draw = () => {
   const heads = (g.day ? ['Day'] : []).concat(g.model ? ['Model'] : [])
   const base = byModel ? rows.filter(x => x.m) : rows
   let groups = g.day || g.model ? [...by(base, x => (g.day ? x.d : '') + '\n' + (g.model ? x.m : ''))] : [['', rows]]
-  groups = groups.map(([k, list]) => [k ? k.split('\n').filter((_, i) => (i === 0 ? g.day : g.model)) : [n === 1 ? 'Today' : n ? 'Last ' + n + ' days' : 'All time'], sum(list)])
+  groups = groups.map(([k, list]) => [k ? k.split('\n').filter((_, i) => (i === 0 ? g.day : g.model)) : [when[0].toUpperCase() + when.slice(1)], sum(list)])
   groups.sort((a, b) => (g.day ? b[0][0].localeCompare(a[0][0]) : 0) || tokens(b[1]) - tokens(a[1]))
   const turnCols = !byModel
   const head = (heads.length ? heads : ['Period']).map(h => '<th>' + h + '</th>').join('') + (turnCols ? '<th>Turns</th><th>Agent time</th>' : '') + '<th>Responses</th><th>Sessions</th><th>Input</th><th>Output</th><th>Cache read</th><th>Cache write</th><th>Total</th><th>Cost</th>'

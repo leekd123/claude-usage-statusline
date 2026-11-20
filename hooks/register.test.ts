@@ -224,7 +224,7 @@ test('/usage-stats builds the page from every day\'s logs and opens it', async (
   for (const id of ['nav', 'built', 'limits', 'scope', 'kpis', 'chart', 'breakdown', 'sessions']) expect(page).toContain(`id="${id}"`)
   expect(page).toContain('<script src="data.js"></script>')
   expect(page!.indexOf("getItem('usage-theme')")).toBeLessThan(page!.indexOf('<body>')) // the theme is set before anything is painted
-  expect(page).toContain('<div class="seg" role="group" aria-label="period"><button data-period="1">Today</button><button data-period="3">3d</button><button data-period="7">7d</button><button data-period="14">14d</button><button data-period="30">30d</button><button data-period="90">90d</button><button data-period="0">All</button></div>')
+  expect(page).toContain('<div class="seg" role="group" aria-label="period"><button data-period="1">Today</button><button data-period="-12">12h</button><button data-period="-24">1d</button><button data-period="3">3d</button><button data-period="7">7d</button><button data-period="14">14d</button><button data-period="30">30d</button><button data-period="90">90d</button><button data-period="0">All</button></div>')
   expect(page).toContain('<button data-metric="turns">Turns</button><button data-metric="responses">Responses</button>')
   expect(data.limits).toEqual([]) // none shared in this store
   expect(page).toContain('<a class="repo" href="https://github.com/leekd123/claude-usage-statusline"')

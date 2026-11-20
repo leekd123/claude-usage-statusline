@@ -32,14 +32,14 @@ Run `/usage-stats` to build the page from the usage log and open it in your brow
 
 - **Rate limits**: each window's usage and the time left to its reset, counting down while the page is open.
 - **A card per metric** for the period: sessions, turns, responses, agent time, cost and tokens, each with its change from the period before.
-- **A chart**: a line of any one of those metrics over the period, in steps of 30m to 24h. On Auto (the default) the step is an hour for Today, 2 hours for 3d, 3 hours for 7d, 6 hours for 14d, 12 hours for 30d, and a day beyond. Point at a point for its figures.
+- **A chart**: a line of any one of those metrics over the period, in steps of 30m to 24h. On Auto (the default) the step is 30 minutes for 12h, an hour for 1d and Today, 2 hours for 3d, 3 hours for 7d, 6 hours for 14d, 12 hours for 30d, and a day beyond. Point at a point for its figures.
 - **Rate limit usage**: each window's percent over the period, as read, held until the next reading and dropping to 0 at a reset. A reading is logged only when a percent changes, from when this version is installed; the limits are the account's, so the project choice does not apply. Point at a dot for its reading.
 - **Breakdown**: a table grouped by day, by model, by both, or (neither) into one row for the period. Turns and agent time show only where the rows are not grouped by model, since a turn has no model.
 - **Sessions**: a row per session used in the period, most recently used first, with its title, project, first and last use in your local time, turns, responses, agent time, tokens and cost.
 
 **What you can change**
 
-- **Period**: Today, 3d, 7d, 14d, 30d, 90d or All, at the top.
+- **Period**: Today, 12h, 1d, 3d, 7d, 14d, 30d, 90d or All, at the top. 12h and 1d are the last 12 or 24 hours up to now; the others are whole local days ending today.
 - **Project**: the sidebar on the left filters everything by project. Lines logged before projects were recorded show under `(no project)`, and the desktop app's own folders for a conversation with no folder picked (`scratch-<day>-<id>`) and for the sessions it starts ahead of time (`~/.claude/spares/spare-<id>`) together under `(scratch)`.
 - **Chart step**, **chart metric** and **breakdown grouping**: the buttons above the chart and the Day and Model checkboxes above the breakdown.
 - **Theme**: Light, Dark or System, at the foot of the sidebar.
