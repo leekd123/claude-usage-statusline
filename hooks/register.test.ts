@@ -133,6 +133,7 @@ test('responses add tokens mid-turn, a measure shares its limits, and today sums
   expect(Object.keys(store).sort()).toEqual([
     `cost:${TODAY}:other`, // this session's cost goes in with its next line
     'limits',
+    'limitsLogged', // the percents last logged, so the same reading is logged once
     'page', // when session start wrote stats.html
     'time', // today's agent time, summed by each build
     `tok:${TODAY}:other`,
@@ -147,7 +148,7 @@ test('responses add tokens mid-turn, a measure shares its limits, and today sums
   expect(log).toEqual([
     { t: '2026-11-13T12:00:00.000Z', session: 'this', project: 'alpha', model: 'm', ...tokens, cost: 0 },
     { t: '2026-11-13T12:00:00.000Z', session: 'this', project: 'alpha', agent: 'a1', model: 'm', ...tokens, cost: 0 },
-    // The measure's limits differ from the shared ones (none yet), so they are logged once.
+    // No reading was logged yet, so the measure's is.
     { t: '2026-11-13T12:00:00.000Z', limits: [{ kind: 'five_hour', percent: 4, resetsAt: '2026-11-13T15:23:00Z' }, { kind: 'seven_day', percent: 10, resetsAt: '2026-11-17T20:00:00Z' }] },
   ])
   // The same reading again logs nothing; a reading counts as no response, and reaches the page's history.
