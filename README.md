@@ -32,8 +32,8 @@ Run `/usage-stats` to build the page from the usage log and open it in your brow
 
 - **Rate limits**: each window's usage and the time left to its reset, counting down while the page is open.
 - **A card per metric** for the period: sessions, turns, responses, agent time, cost and tokens, each with its change from the period before.
-- **A chart**: a line of any one of those metrics over the period, in steps of 30m to 24h. On Auto (the default) the step is 30 minutes for 12h, an hour for 1d and Today, 2 hours for 3d, 3 hours for 7d, 6 hours for 14d, 12 hours for 30d, and a day beyond. Point at a point for its figures.
-- **Rate limit usage**: each window's percent over the period, as read, held until the next reading and dropping to 0 at a reset. A reading is logged only when a percent changes, from when this version is installed; the limits are the account's, so the project choice does not apply. Point anywhere on it for each window's percent at that time.
+- **A chart**: a line of any one of those metrics over the period, in steps of 30m to 24h. On Auto (the default) the step is 30 minutes for 12h, an hour for 1d and Today, 2 hours for 3d, 3 hours for 7d, 6 hours for 14d, 12 hours for 30d, and a day beyond. Point at a step for every metric's figure there, one per line.
+- **Rate limits on the chart**: each window's percent over the period, in its own color against the 0–100% scale on the right, as read, held until the next reading and dropping to 0 at a reset. A reading is logged only when a percent changes, from when this version is installed; the limits are the account's, so the project choice does not apply. Pointing at a step also shows each window's percent at its middle, with a dot on each line.
 - **Breakdown**: a table grouped by any of day, project and model, or (none of them) into one row for the period. Turns and agent time show only where the rows are not grouped by model, since a turn has no model.
 - **Sessions**: a row per session used in the period, most recently used first, with its title, project, first and last use in your local time, turns, responses, agent time, tokens and cost.
 

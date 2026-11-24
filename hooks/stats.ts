@@ -174,9 +174,9 @@ export const statsPage = () => `<!doctype html>
 <title>Claude usage</title>
 <script>try { const t = localStorage.getItem('usage-theme'); if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t) } catch {} // the chosen theme before the first paint, so a reload never flashes the other one</script>
 <style>
-:root{--bg:#fafaf9;--fg:#1c1917;--dim:#78716c;--line:#e7e5e4;--card:#fff;--bar:#d97757;--bar2:#2563eb;--hover:#f5f5f4;--up:#b45309;--down:#15803d}
-@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#1c1917;--fg:#f5f5f4;--dim:#a8a29e;--line:#44403c;--card:#292524;--bar:#e08a6d;--bar2:#60a5fa;--hover:#292524;--up:#fbbf24;--down:#4ade80}}
-:root[data-theme=dark]{--bg:#1c1917;--fg:#f5f5f4;--dim:#a8a29e;--line:#44403c;--card:#292524;--bar:#e08a6d;--bar2:#60a5fa;--hover:#292524;--up:#fbbf24;--down:#4ade80}
+:root{--bg:#fafaf9;--fg:#1c1917;--dim:#78716c;--line:#e7e5e4;--card:#fff;--bar:#d97757;--bar2:#2563eb;--bar3:#7c3aed;--hover:#f5f5f4;--up:#b45309;--down:#15803d}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#1c1917;--fg:#f5f5f4;--dim:#a8a29e;--line:#44403c;--card:#292524;--bar:#e08a6d;--bar2:#60a5fa;--bar3:#a78bfa;--hover:#292524;--up:#fbbf24;--down:#4ade80}}
+:root[data-theme=dark]{--bg:#1c1917;--fg:#f5f5f4;--dim:#a8a29e;--line:#44403c;--card:#292524;--bar:#e08a6d;--bar2:#60a5fa;--bar3:#a78bfa;--hover:#292524;--up:#fbbf24;--down:#4ade80}
 :root{color-scheme:light}:root[data-theme=dark]{color-scheme:dark}
 @media (prefers-color-scheme:dark){:root:not([data-theme=light]){color-scheme:dark}}
 body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 system-ui,sans-serif}
@@ -186,7 +186,7 @@ body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 system-ui,sans-
 .theme button+button,.seg button+button{border-left:1px solid var(--line)}
 .theme button[aria-pressed=true],.refresh button[aria-pressed=true],.seg button[aria-pressed=true]{background:var(--fg);color:var(--bg)}
 .chart{position:relative;padding-top:28px}.hit{fill:transparent}.day:hover .hit{fill:var(--hover)}
-.tip{position:absolute;pointer-events:none;background:var(--fg);color:var(--bg);font-size:12px;padding:4px 8px;border-radius:6px;white-space:nowrap;transform:translate(-50%,-100%)}
+.tip{position:absolute;pointer-events:none;background:var(--fg);color:var(--bg);font-size:12px;line-height:1.5;padding:4px 8px;border-radius:6px;white-space:pre;transform:translate(-50%,-100%)}
 main{max-width:1100px;width:100%;box-sizing:border-box;margin:0 auto;padding:24px}
 h1{font-size:20px;margin:0 0 4px}h2{font-size:15px;margin:32px 0 8px}
 .top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin:32px 0 0}.top h2{margin:0}
@@ -197,7 +197,7 @@ h1{font-size:20px;margin:0 0 4px}h2{font-size:15px;margin:32px 0 8px}
 .label,.sub{color:var(--dim);font-size:12px}.value{font-size:20px;font-weight:600}
 .delta{font-size:12px;font-weight:500;margin-left:6px}.delta.up{color:var(--up)}.delta.down{color:var(--down)}
 svg{width:100%;height:auto;display:block}.chart svg{aspect-ratio:840/182}#breakdown,#sessions{min-height:120px}svg text{fill:var(--dim);font-size:10px}
-.line{fill:none;stroke:var(--bar);stroke-width:2;stroke-linejoin:round;pointer-events:none}.area{fill:var(--bar);opacity:.15;pointer-events:none}.grid{stroke:var(--line);pointer-events:none}.axis{pointer-events:none}.dot{fill:var(--bar);opacity:0}.lim{fill:none;stroke-width:2}.cursor{stroke:var(--dim);stroke-width:1;pointer-events:none}.day .cursor{visibility:hidden}.day:hover .cursor{visibility:visible}.legend{display:flex;gap:14px;color:var(--dim);font-size:12px}.legend i{display:inline-block;width:10px;height:3px;border-radius:2px;margin-right:6px;vertical-align:middle}.day:hover .dot{opacity:1}
+.line{fill:none;stroke:var(--bar);stroke-width:2;stroke-linejoin:round;pointer-events:none}.area{fill:var(--bar);opacity:.15;pointer-events:none}.grid{stroke:var(--line);pointer-events:none}.axis{pointer-events:none}.dot{fill:var(--bar);opacity:0}.lim{fill:none;stroke-width:2;pointer-events:none}.cursor{stroke:var(--dim);stroke-width:1;pointer-events:none}.day .cursor{visibility:hidden}.day:hover .cursor{visibility:visible}.legend{display:flex;gap:14px;color:var(--dim);font-size:12px}.legend i{display:inline-block;width:10px;height:3px;border-radius:2px;margin-right:6px;vertical-align:middle}.day:hover .dot{opacity:1}
 .meter{height:6px;border-radius:3px;background:var(--line);margin:6px 0 4px;overflow:hidden}.meter i{display:block;height:100%;background:var(--bar)}
 .scroll{overflow-x:auto}
 table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
@@ -228,9 +228,8 @@ main>h2:first-child{margin-top:0}
 <div class="top"><h2 id="scope">&nbsp;</h2>${seg('period', PERIODS)}</div>
 <div class="cards" id="kpis">${PLACEHOLDER_KPIS}</div>
 <div class="head"><h2 id="chart-title">&nbsp;</h2>${seg('step', STEPS)}${seg('metric', METRICS)}</div>
+<div class="legend" id="limit-legend"></div>
 <div class="chart" id="chart"><svg role="img"></svg><div class="tip" hidden></div></div>
-<div class="head"><h2>Rate limit usage</h2><div class="legend" id="limit-legend"></div></div>
-<div class="chart" id="limit-chart"><svg role="img"></svg><div class="tip" hidden></div></div>
 <h2>Breakdown</h2>
 <div class="group">Group by <label><input type="checkbox" data-group="day"> Day</label><label><input type="checkbox" data-group="project"> Project</label><label><input type="checkbox" data-group="model"> Model</label></div>
 <div class="scroll" id="breakdown"></div>
@@ -430,7 +429,7 @@ const draw = () => {
   const buckets = days.flatMap(d => Array.from({ length: 24 / size }, (_, k) => ({ d, h: k * size })))
     .filter(b => { const t = new Date(b.d + 'T' + hm(b.h)).getTime(); return t <= now && (!roll || t + size * 3600e3 > now - roll) })
   const hourly = days.length === 1 || roll > 0 // labels the hours, not the days
-  const values = buckets.map(b => pick(sum(perBucket.get(b.d + ' ' + b.h) || [])))
+  const totals = buckets.map(b => sum(perBucket.get(b.d + ' ' + b.h) || [])), values = totals.map(pick)
   const max = Math.max(1, ...values), W = 840, H = 160, step = W / Math.max(1, buckets.length)
   const px = i => i * step + step / 2, py = v => H - (v / max) * (H - 6)
   const inside = x => Math.min(Math.max(x, 16), W - 16) // an x-axis label's middle, kept far enough in that the label is not cut
@@ -441,21 +440,13 @@ const draw = () => {
   svg.setAttribute('viewBox', '0 0 ' + W + ' ' + (H + 22))
   svg.setAttribute('aria-label', NAME[state.metric] + ' ' + per + ', ' + when)
   const grid = [1, 0.5].map(f => '<line class="grid" x1="0" x2="' + W + '" y1="' + py(max * f) + '" y2="' + py(max * f) + '"/><text class="axis" x="2" y="' + (py(max * f) + 12) + '">' + esc(show(max * f)) + '</text>').join('') + '<line class="grid" x1="0" x2="' + W + '" y1="' + H + '" y2="' + H + '"/>'
-  const columns = buckets.map((b, i) => {
-    const at = size === 24 ? b.d : b.d + ' ' + hm(b.h) + '–' + hm(b.h + size)
-    const tip = esc(at + ' · ' + show(values[i]) + ' ' + NAME[state.metric].toLowerCase())
-    const label = shown.has(i) ? '<text x="' + inside(px(i)) + '" y="' + (H + 16) + '" text-anchor="middle">' + (hourly ? hm(b.h) : b.d.slice(5)) + '</text>' : ''
-    return '<g class="day" data-tip="' + tip + '" aria-label="' + tip + '"><rect class="hit" x="' + i * step + '" y="0" width="' + step + '" height="' + H + '"/><line class="cursor" x1="' + px(i) + '" x2="' + px(i) + '" y1="0" y2="' + H + '"/><circle class="dot" cx="' + px(i) + '" cy="' + py(values[i]) + '" r="3.5"/>' + label + '</g>'
-  }).join('')
-  const pts = values.map((v, i) => px(i).toFixed(1) + ',' + py(v).toFixed(1))
-  const line = pts.length ? '<path class="area" d="M' + px(0) + ',' + H + 'L' + pts.join('L') + 'L' + px(pts.length - 1) + ',' + H + 'Z"/><path class="line" d="M' + pts.join('L') + '"/>' : ''
-  svg.innerHTML = columns + grid + line // the grid over the columns, so a hovered column does not hide its labels
-
-  // Rate limits over the period: each window's percent as last read, held until the next reading, and 0
-  // from a reset that passed before it. They are the account's, so the project choice does not apply.
-  const start = roll ? now - roll : new Date(days[0] + 'T00:00').getTime(), end = Math.max(start + 1, now)
+  // Rate limits over the period, on the same chart against a 0–100% scale (the right axis): each window's
+  // percent as last read, held until the next reading, and 0 from a reset that passed before it. They are
+  // the account's, so the project choice does not apply. Time maps onto the buckets, a bucket per size hours.
+  // shortcut: a day with a DST change is taken as 24 hours, so its lines sit an hour off; fine without DST.
+  const dur = size * 3600e3, start = buckets.length ? new Date(buckets[0].d + 'T' + hm(buckets[0].h)).getTime() : now, end = Math.max(start + 1, now)
   const hist = (DATA.history || []).filter(r => Date.parse(r[0]) <= end)
-  const lx = t => ((t - start) / (end - start)) * W, ly = p => H - (Math.min(p, 100) / 100) * (H - 6)
+  const lx = t => ((t - start) / dur) * step, ly = p => H - (Math.min(p, 100) / 100) * (H - 6)
   const series = kind => {
     const pts = []
     let reset = 0
@@ -469,31 +460,27 @@ const draw = () => {
     const before = pts.filter(p => p[0] < start).at(-1), inside = pts.filter(p => p[0] >= start)
     return before ? [[start, before[1]]].concat(inside) : inside
   }
+  const COLOR = ['var(--bar2)', 'var(--bar3)', 'var(--dim)']
   const kinds = Object.keys(LIMIT_NAME).concat([...new Set(hist.map(r => r[1]))]).filter((k, i, all) => all.indexOf(k) === i && hist.some(r => r[1] === k))
-  const COLOR = ['var(--bar)', 'var(--bar2)', 'var(--dim)']
-  const lsvg = document.querySelector('#limit-chart svg')
-  lsvg.setAttribute('viewBox', '0 0 ' + W + ' ' + (H + 22))
-  lsvg.setAttribute('aria-label', 'Rate limit usage, ' + when)
-  const lgrid = [100, 50].map(p => '<line class="grid" x1="0" x2="' + W + '" y1="' + ly(p) + '" y2="' + ly(p) + '"/><text class="axis" x="2" y="' + (ly(p) + 12) + '">' + p + '%</text>').join('') + '<line class="grid" x1="0" x2="' + W + '" y1="' + H + '" y2="' + H + '"/>'
-  const ticks = [...shown].map(i => '<text x="' + inside(lx(new Date(buckets[i].d + 'T' + hm(buckets[i].h)).getTime())) + '" y="' + (H + 16) + '" text-anchor="middle">' + (hourly ? hm(buckets[i].h) : buckets[i].d.slice(5)) + '</text>').join('')
-  const lines = kinds.map((k, n) => {
-    const pts = series(k), color = COLOR[Math.min(n, COLOR.length - 1)]
-    if (!pts.length) return ''
-    const d = 'M' + lx(pts[0][0]).toFixed(1) + ',' + ly(pts[0][1]).toFixed(1) + pts.slice(1).map(p => 'H' + lx(p[0]).toFixed(1) + 'V' + ly(p[1]).toFixed(1)).join('') + 'H' + W
-    const dots = hist.filter(r => r[1] === k && Date.parse(r[0]) >= start).map(r => '<circle class="reading" cx="' + lx(Date.parse(r[0])).toFixed(1) + '" cy="' + ly(r[2]).toFixed(1) + '" r="2.5" style="fill:' + color + '"/>').join('')
-    return '<path class="lim" style="stroke:' + color + '" d="' + d + '"/>' + dots
+  const held = kinds.map((k, n) => [LIMIT_NAME[k] || k, series(k), COLOR[Math.min(n, COLOR.length - 1)]]).filter(x => x[1].length)
+  const lims = held.map(([, pts, color]) => '<path class="lim" style="stroke:' + color + '" d="M' + lx(pts[0][0]).toFixed(1) + ',' + ly(pts[0][1]).toFixed(1) + pts.slice(1).map(p => 'H' + lx(p[0]).toFixed(1) + 'V' + ly(p[1]).toFixed(1)).join('') + 'H' + lx(end).toFixed(1) + '"/>').join('')
+  const right = held.length ? [100, 50].map(p => '<text class="axis" x="' + (W - 2) + '" y="' + (ly(p) + 12) + '" text-anchor="end">' + p + '%</text>').join('') : ''
+
+  const columns = buckets.map((b, i) => {
+    const at = size === 24 ? b.d : b.d + ' ' + hm(b.h) + '–' + hm(b.h + size)
+    // Each window's percent at the column's middle (or now, in the column under way), its dot shown on hover.
+    const t = Math.min(start + (i + 0.5) * dur, now), read = held.map(([name, pts, color]) => [name, pts.filter(p => p[0] <= t).at(-1), color]).filter(x => x[1])
+    // The tooltip: one line each, every metric (not only the one charted) and then the windows.
+    const lines = [at].concat(Object.keys(METRIC).map(k => NAME[k] + ': ' + METRIC[k][1](METRIC[k][0](totals[i]))), read.length ? ['Rate limits at ' + new Date(t).toTimeString().slice(0, 5)].concat(read.map(([name, p]) => name + ': ' + p[1] + '%')) : [])
+    const tip = esc(lines.join('\n'))
+    const dots = read.map(([, p, color]) => '<circle class="dot" cx="' + lx(t).toFixed(1) + '" cy="' + ly(p[1]).toFixed(1) + '" r="3.5" style="fill:' + color + '"/>').join('')
+    const label = shown.has(i) ? '<text x="' + inside(px(i)) + '" y="' + (H + 16) + '" text-anchor="middle">' + (hourly ? hm(b.h) : b.d.slice(5)) + '</text>' : ''
+    return '<g class="day" data-tip="' + tip + '" aria-label="' + esc(lines.join(', ')) + '"><rect class="hit" x="' + i * step + '" y="0" width="' + step + '" height="' + H + '"/><line class="cursor" x1="' + px(i) + '" x2="' + px(i) + '" y1="0" y2="' + H + '"/><circle class="dot" cx="' + px(i) + '" cy="' + py(values[i]) + '" r="3.5"/>' + dots + label + '</g>'
   }).join('')
-  lsvg.innerHTML = lgrid + ticks + (kinds.length ? lines : '<text x="' + W / 2 + '" y="' + H / 2 + '" text-anchor="middle">No rate-limit readings logged in this period yet.</text>')
-  // The hover reads every window's percent at the time under the cursor (f: 0 to 1 across the chart).
-  const held = kinds.map(k => [LIMIT_NAME[k] || k, series(k)])
-  lsvg.tipAt = f => {
-    const t = start + f * (end - start), at = held.map(([name, pts]) => [name, pts.filter(p => p[0] <= t).at(-1)]).filter(x => x[1])
-    return at.length ? shortTime(new Date(t)) + ' · ' + at.map(([name, p]) => name + ' ' + p[1] + '%').join(' · ') : ''
-  }
-  document.getElementById('limit-legend').innerHTML = kinds.map((k, n) => {
-    const pts = series(k)
-    return '<span><i style="background:' + COLOR[Math.min(n, COLOR.length - 1)] + '"></i>' + esc(LIMIT_NAME[k] || k) + (pts.length ? ' ' + pts.at(-1)[1] + '%' : '') + '</span>'
-  }).join('')
+  const pts = values.map((v, i) => px(i).toFixed(1) + ',' + py(v).toFixed(1))
+  const line = pts.length ? '<path class="area" d="M' + px(0) + ',' + H + 'L' + pts.join('L') + 'L' + px(pts.length - 1) + ',' + H + 'Z"/><path class="line" d="M' + pts.join('L') + '"/>' : ''
+  svg.innerHTML = columns + grid + line + lims + right // the grid over the columns, so a hovered column does not hide its labels
+  document.getElementById('limit-legend').innerHTML = held.length ? '<span><i style="background:var(--bar)"></i>' + esc(NAME[state.metric]) + '</span>' + held.map(([name, pts, color]) => '<span><i style="background:' + color + '"></i>' + esc(name) + ' ' + pts.at(-1)[1] + '%</span>').join('') : ''
 
   // The breakdown: rows grouped by any of day, project and model, or by none. A turn has no model, so a
   // grouping by model leaves turns and agent time out.
@@ -548,23 +535,4 @@ chart.onmouseover = e => {
   tip.style.top = r.top - c.top - 4 + 'px'
 }
 chart.onmouseleave = () => { tip.hidden = true }
-// Rate limit tooltip: at the cursor, each window's percent then.
-const lchart = document.getElementById('limit-chart'), ltip = lchart.querySelector('.tip')
-lchart.onmousemove = e => {
-  const svg = lchart.querySelector('svg'), c = lchart.getBoundingClientRect(), r = svg.getBoundingClientRect()
-  const f = Math.min(Math.max((e.clientX - r.left) / r.width, 0), 1), text = svg.tipAt ? svg.tipAt(f) : ''
-  ltip.hidden = !text
-  // A line at the time the tooltip reads; added here since each draw replaces the chart's contents.
-  let cursor = svg.querySelector('.cursor')
-  if (!cursor && text) svg.insertAdjacentHTML('beforeend', '<line class="cursor" y1="0" y2="160"/>'), cursor = svg.querySelector('.cursor')
-  if (cursor) cursor.style.display = text ? '' : 'none'
-  if (!text) return
-  cursor.setAttribute('x1', f * 840)
-  cursor.setAttribute('x2', f * 840)
-  ltip.textContent = text
-  const half = ltip.offsetWidth / 2
-  ltip.style.left = Math.min(Math.max(e.clientX - c.left, half), c.width - half) + 'px'
-  ltip.style.top = r.top - c.top - 4 + 'px'
-}
-lchart.onmouseleave = () => { ltip.hidden = true; const c = lchart.querySelector('.cursor'); if (c) c.style.display = 'none' }
 `
