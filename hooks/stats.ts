@@ -203,7 +203,7 @@ svg{width:100%;height:auto;display:block}.chart svg{aspect-ratio:840/182}#breakd
 table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
 th,td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
 td.id{color:var(--dim);font-family:ui-monospace,monospace}td.empty{text-align:left;color:var(--dim)}
-th:first-child,td:first-child,.two th:nth-child(2),.two td:nth-child(2){text-align:left}
+th:first-child,td:first-child,.two th:nth-child(2),.two td:nth-child(2),.three th:nth-child(3),.three td:nth-child(3){text-align:left}
 .group{display:flex;gap:14px;align-items:center;color:var(--dim);font-size:12px;margin-bottom:6px}.group label{display:inline-flex;gap:4px;align-items:center;color:var(--fg);cursor:pointer}th{color:var(--dim);font-weight:500}
 .app{display:grid;grid-template-columns:250px minmax(0,1fr);min-height:100vh}
 .side{position:sticky;top:0;height:100vh;box-sizing:border-box;overflow-y:auto;display:flex;flex-direction:column;padding:20px 12px;border-right:1px solid var(--line);background:var(--card)}
@@ -232,7 +232,7 @@ main>h2:first-child{margin-top:0}
 <div class="head"><h2>Rate limit usage</h2><div class="legend" id="limit-legend"></div></div>
 <div class="chart" id="limit-chart"><svg role="img"></svg><div class="tip" hidden></div></div>
 <h2>Breakdown</h2>
-<div class="group">Group by <label><input type="checkbox" data-group="day"> Day</label><label><input type="checkbox" data-group="model"> Model</label></div>
+<div class="group">Group by <label><input type="checkbox" data-group="day"> Day</label><label><input type="checkbox" data-group="project"> Project</label><label><input type="checkbox" data-group="model"> Model</label></div>
 <div class="scroll" id="breakdown"></div>
 <h2>Sessions</h2>
 <div class="scroll" id="sessions"></div>
@@ -495,19 +495,19 @@ const draw = () => {
     return '<span><i style="background:' + COLOR[Math.min(n, COLOR.length - 1)] + '"></i>' + esc(LIMIT_NAME[k] || k) + (pts.length ? ' ' + pts.at(-1)[1] + '%' : '') + '</span>'
   }).join('')
 
-  // The breakdown: rows grouped by day, model, both, or neither. A turn has no model, so a grouping by
-  // model leaves turns and agent time out.
+  // The breakdown: rows grouped by any of day, project and model, or by none. A turn has no model, so a
+  // grouping by model leaves turns and agent time out.
   const g = state.groups, byModel = g.model
-  const heads = (g.day ? ['Day'] : []).concat(g.model ? ['Model'] : [])
+  const dims = [['day', 'Day', x => x.d], ['project', 'Project', x => x.p], ['model', 'Model', x => x.m]].filter(d => g[d[0]])
+  const heads = dims.map(d => d[1])
   const base = byModel ? rows.filter(x => x.m) : rows
-  let groups = g.day || g.model ? [...by(base, x => (g.day ? x.d : '') + '\n' + (g.model ? x.m : ''))] : [['', rows]]
-  groups = groups.map(([k, list]) => [k ? k.split('\n').filter((_, i) => (i === 0 ? g.day : g.model)) : [when[0].toUpperCase() + when.slice(1)], sum(list)])
+  const groups = dims.length ? [...by(base, x => dims.map(d => d[2](x)).join('\n'))].map(([k, list]) => [k.split('\n'), sum(list)]) : [[[when[0].toUpperCase() + when.slice(1)], sum(rows)]]
   groups.sort((a, b) => (g.day ? b[0][0].localeCompare(a[0][0]) : 0) || tokens(b[1]) - tokens(a[1]))
   const turnCols = !byModel
   const head = (heads.length ? heads : ['Period']).map(h => '<th>' + h + '</th>').join('') + (turnCols ? '<th>Turns</th><th>Agent time</th>' : '') + '<th>Responses</th><th>Sessions</th><th>Input</th><th>Output</th><th>Cache read</th><th>Cache write</th><th>Total</th><th>Cost</th>'
   const cols = 2 + heads.length + (turnCols ? 2 : 0) + 6
   const body = groups.length ? groups.map(([names, t]) => '<tr>' + names.map(x => '<td>' + esc(x) + '</td>').join('') + (turnCols ? '<td>' + t.n + '</td><td>' + elapsed(t.ms) + '</td>' : '') + '<td>' + t.r + '</td><td>' + t.sessions.size + '</td><td>' + fmt(t.i) + '</td><td>' + fmt(t.o) + '</td><td>' + fmt(t.cr) + '</td><td>' + fmt(t.cw) + '</td><td><b>' + fmt(tokens(t)) + '</b></td><td>' + usd(t.c) + '</td></tr>').join('') : '<tr><td class="empty" colspan="' + cols + '">No usage in this period.</td></tr>'
-  document.getElementById('breakdown').innerHTML = '<table' + (heads.length > 1 ? ' class="two"' : '') + '><thead><tr>' + head + '</tr></thead><tbody>' + body + '</tbody></table>'
+  document.getElementById('breakdown').innerHTML = '<table' + (heads.length > 2 ? ' class="two three"' : heads.length > 1 ? ' class="two"' : '') + '><thead><tr>' + head + '</tr></thead><tbody>' + body + '</tbody></table>'
 
   // Sessions used in the period, the most recently used first.
   const sessions = [...by(rows, x => x.s)].map(([s, list]) => {
