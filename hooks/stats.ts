@@ -197,7 +197,7 @@ h1{font-size:20px;margin:0 0 4px}h2{font-size:15px;margin:32px 0 8px}
 .label,.sub{color:var(--dim);font-size:12px}.value{font-size:20px;font-weight:600}
 .delta{font-size:12px;font-weight:500;margin-left:6px}.delta.up{color:var(--up)}.delta.down{color:var(--down)}
 svg{width:100%;height:auto;display:block}.chart svg{aspect-ratio:840/182}#breakdown,#sessions{min-height:120px}svg text{fill:var(--dim);font-size:10px}
-.line{fill:none;stroke:var(--bar);stroke-width:2;stroke-linejoin:round;pointer-events:none}.area{fill:var(--bar);opacity:.15;pointer-events:none}.grid{stroke:var(--line);pointer-events:none}.axis{pointer-events:none}.dot{fill:var(--bar);opacity:0}.lim{fill:none;stroke-width:2}.legend{display:flex;gap:14px;color:var(--dim);font-size:12px}.legend i{display:inline-block;width:10px;height:3px;border-radius:2px;margin-right:6px;vertical-align:middle}.day:hover .dot{opacity:1}
+.line{fill:none;stroke:var(--bar);stroke-width:2;stroke-linejoin:round;pointer-events:none}.area{fill:var(--bar);opacity:.15;pointer-events:none}.grid{stroke:var(--line);pointer-events:none}.axis{pointer-events:none}.dot{fill:var(--bar);opacity:0}.lim{fill:none;stroke-width:2}.cursor{stroke:var(--dim);stroke-width:1;pointer-events:none}.day .cursor{visibility:hidden}.day:hover .cursor{visibility:visible}.legend{display:flex;gap:14px;color:var(--dim);font-size:12px}.legend i{display:inline-block;width:10px;height:3px;border-radius:2px;margin-right:6px;vertical-align:middle}.day:hover .dot{opacity:1}
 .meter{height:6px;border-radius:3px;background:var(--line);margin:6px 0 4px;overflow:hidden}.meter i{display:block;height:100%;background:var(--bar)}
 .scroll{overflow-x:auto}
 table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
@@ -230,7 +230,7 @@ main>h2:first-child{margin-top:0}
 <div class="head"><h2 id="chart-title">&nbsp;</h2>${seg('step', STEPS)}${seg('metric', METRICS)}</div>
 <div class="chart" id="chart"><svg role="img"></svg><div class="tip" hidden></div></div>
 <div class="head"><h2>Rate limit usage</h2><div class="legend" id="limit-legend"></div></div>
-<div class="chart" id="limit-chart"><svg role="img"></svg></div>
+<div class="chart" id="limit-chart"><svg role="img"></svg><div class="tip" hidden></div></div>
 <h2>Breakdown</h2>
 <div class="group">Group by <label><input type="checkbox" data-group="day"> Day</label><label><input type="checkbox" data-group="model"> Model</label></div>
 <div class="scroll" id="breakdown"></div>
@@ -445,7 +445,7 @@ const draw = () => {
     const at = size === 24 ? b.d : b.d + ' ' + hm(b.h) + '–' + hm(b.h + size)
     const tip = esc(at + ' · ' + show(values[i]) + ' ' + NAME[state.metric].toLowerCase())
     const label = shown.has(i) ? '<text x="' + inside(px(i)) + '" y="' + (H + 16) + '" text-anchor="middle">' + (hourly ? hm(b.h) : b.d.slice(5)) + '</text>' : ''
-    return '<g class="day" data-tip="' + tip + '" aria-label="' + tip + '"><rect class="hit" x="' + i * step + '" y="0" width="' + step + '" height="' + H + '"/><circle class="dot" cx="' + px(i) + '" cy="' + py(values[i]) + '" r="3.5"/>' + label + '</g>'
+    return '<g class="day" data-tip="' + tip + '" aria-label="' + tip + '"><rect class="hit" x="' + i * step + '" y="0" width="' + step + '" height="' + H + '"/><line class="cursor" x1="' + px(i) + '" x2="' + px(i) + '" y1="0" y2="' + H + '"/><circle class="dot" cx="' + px(i) + '" cy="' + py(values[i]) + '" r="3.5"/>' + label + '</g>'
   }).join('')
   const pts = values.map((v, i) => px(i).toFixed(1) + ',' + py(v).toFixed(1))
   const line = pts.length ? '<path class="area" d="M' + px(0) + ',' + H + 'L' + pts.join('L') + 'L' + px(pts.length - 1) + ',' + H + 'Z"/><path class="line" d="M' + pts.join('L') + '"/>' : ''
@@ -480,10 +480,16 @@ const draw = () => {
     const pts = series(k), color = COLOR[Math.min(n, COLOR.length - 1)]
     if (!pts.length) return ''
     const d = 'M' + lx(pts[0][0]).toFixed(1) + ',' + ly(pts[0][1]).toFixed(1) + pts.slice(1).map(p => 'H' + lx(p[0]).toFixed(1) + 'V' + ly(p[1]).toFixed(1)).join('') + 'H' + W
-    const dots = hist.filter(r => r[1] === k && Date.parse(r[0]) >= start).map(r => '<circle class="reading" cx="' + lx(Date.parse(r[0])).toFixed(1) + '" cy="' + ly(r[2]).toFixed(1) + '" r="2.5" style="fill:' + color + '"><title>' + esc(shortTime(new Date(r[0])) + ' · ' + (LIMIT_NAME[k] || k) + ' ' + r[2] + '%') + '</title></circle>').join('')
+    const dots = hist.filter(r => r[1] === k && Date.parse(r[0]) >= start).map(r => '<circle class="reading" cx="' + lx(Date.parse(r[0])).toFixed(1) + '" cy="' + ly(r[2]).toFixed(1) + '" r="2.5" style="fill:' + color + '"/>').join('')
     return '<path class="lim" style="stroke:' + color + '" d="' + d + '"/>' + dots
   }).join('')
   lsvg.innerHTML = lgrid + ticks + (kinds.length ? lines : '<text x="' + W / 2 + '" y="' + H / 2 + '" text-anchor="middle">No rate-limit readings logged in this period yet.</text>')
+  // The hover reads every window's percent at the time under the cursor (f: 0 to 1 across the chart).
+  const held = kinds.map(k => [LIMIT_NAME[k] || k, series(k)])
+  lsvg.tipAt = f => {
+    const t = start + f * (end - start), at = held.map(([name, pts]) => [name, pts.filter(p => p[0] <= t).at(-1)]).filter(x => x[1])
+    return at.length ? shortTime(new Date(t)) + ' · ' + at.map(([name, p]) => name + ' ' + p[1] + '%').join(' · ') : ''
+  }
   document.getElementById('limit-legend').innerHTML = kinds.map((k, n) => {
     const pts = series(k)
     return '<span><i style="background:' + COLOR[Math.min(n, COLOR.length - 1)] + '"></i>' + esc(LIMIT_NAME[k] || k) + (pts.length ? ' ' + pts.at(-1)[1] + '%' : '') + '</span>'
@@ -542,4 +548,23 @@ chart.onmouseover = e => {
   tip.style.top = r.top - c.top - 4 + 'px'
 }
 chart.onmouseleave = () => { tip.hidden = true }
+// Rate limit tooltip: at the cursor, each window's percent then.
+const lchart = document.getElementById('limit-chart'), ltip = lchart.querySelector('.tip')
+lchart.onmousemove = e => {
+  const svg = lchart.querySelector('svg'), c = lchart.getBoundingClientRect(), r = svg.getBoundingClientRect()
+  const f = Math.min(Math.max((e.clientX - r.left) / r.width, 0), 1), text = svg.tipAt ? svg.tipAt(f) : ''
+  ltip.hidden = !text
+  // A line at the time the tooltip reads; added here since each draw replaces the chart's contents.
+  let cursor = svg.querySelector('.cursor')
+  if (!cursor && text) svg.insertAdjacentHTML('beforeend', '<line class="cursor" y1="0" y2="160"/>'), cursor = svg.querySelector('.cursor')
+  if (cursor) cursor.style.display = text ? '' : 'none'
+  if (!text) return
+  cursor.setAttribute('x1', f * 840)
+  cursor.setAttribute('x2', f * 840)
+  ltip.textContent = text
+  const half = ltip.offsetWidth / 2
+  ltip.style.left = Math.min(Math.max(e.clientX - c.left, half), c.width - half) + 'px'
+  ltip.style.top = r.top - c.top - 4 + 'px'
+}
+lchart.onmouseleave = () => { ltip.hidden = true; const c = lchart.querySelector('.cursor'); if (c) c.style.display = 'none' }
 `
