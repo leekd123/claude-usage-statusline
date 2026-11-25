@@ -198,7 +198,7 @@ h1{font-size:20px;margin:0 0 4px}h2{font-size:15px;margin:32px 0 8px}
 .today{margin-top:8px;padding-top:6px;border-top:1px solid var(--line);color:var(--dim);font-size:12px}.today b{color:var(--fg);font-size:15px;font-weight:600;margin-left:4px}
 .delta{font-size:12px;font-weight:500;margin-left:6px}.delta.up{color:var(--up)}.delta.down{color:var(--down)}
 svg{width:100%;height:auto;display:block}.chart svg{aspect-ratio:840/182}#breakdown,#sessions{min-height:120px}svg text{fill:var(--dim);font-size:10px}
-.line{fill:none;stroke:var(--bar);stroke-width:2;stroke-linejoin:round;pointer-events:none}.area{fill:var(--bar);opacity:.15;pointer-events:none}.grid{stroke:var(--line);pointer-events:none}.axis{pointer-events:none}.dot{fill:var(--bar);opacity:0}.lim{fill:none;stroke-width:2;pointer-events:none}.cursor{stroke:var(--dim);stroke-width:1;pointer-events:none}.day .cursor{visibility:hidden}.day:hover .cursor{visibility:visible}.legend{display:flex;gap:14px;color:var(--dim);font-size:12px}.legend i{display:inline-block;width:10px;height:3px;border-radius:2px;margin-right:6px;vertical-align:middle}.day:hover .dot{opacity:1}
+.line{fill:none;stroke:var(--bar);stroke-width:2;stroke-linejoin:round;pointer-events:none}.area{fill:var(--bar);opacity:.15;pointer-events:none}.grid{stroke:var(--line);pointer-events:none}.axis{pointer-events:none}.dot{fill:var(--bar);opacity:0}.lim{fill:none;stroke-width:2;pointer-events:none}.cursor{stroke:var(--dim);stroke-width:1;pointer-events:none}.hover{pointer-events:none}.legend{display:flex;gap:14px;color:var(--dim);font-size:12px}.legend i{display:inline-block;width:10px;height:3px;border-radius:2px;margin-right:6px;vertical-align:middle}.day:hover .dot{opacity:1}
 .meter{height:6px;border-radius:3px;background:var(--line);margin:6px 0 4px;overflow:hidden}.meter i{display:block;height:100%;background:var(--bar)}
 .scroll{overflow-x:auto}
 table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}
@@ -467,19 +467,21 @@ const draw = () => {
   const COLOR = ['var(--bar2)', 'var(--bar3)', 'var(--dim)']
   const kinds = Object.keys(LIMIT_NAME).concat([...new Set(hist.map(r => r[1]))]).filter((k, i, all) => all.indexOf(k) === i && hist.some(r => r[1] === k))
   const held = kinds.map((k, n) => [LIMIT_NAME[k] || k, series(k), COLOR[Math.min(n, COLOR.length - 1)]]).filter(x => x[1].length)
+  // For the hover: the time at x (chart units, held at now) and each window's percent then, at any x, not only a step's.
+  svg.limitsAt = x => {
+    const t = Math.min(start + (Math.max(x, 0) / step) * dur, now)
+    return { t, x: lx(t), read: held.map(([name, pts, color]) => [name, pts.filter(p => p[0] <= t).at(-1), color]).filter(r => r[1]).map(([name, p, color]) => [name, p[1], color, ly(p[1])]) }
+  }
   const lims = held.map(([, pts, color]) => '<path class="lim" style="stroke:' + color + '" d="M' + lx(pts[0][0]).toFixed(1) + ',' + ly(pts[0][1]).toFixed(1) + pts.slice(1).map(p => 'H' + lx(p[0]).toFixed(1) + 'V' + ly(p[1]).toFixed(1)).join('') + 'H' + lx(end).toFixed(1) + '"/>').join('')
   const right = held.length ? [100, 50].map(p => '<text class="axis" x="' + (W - 2) + '" y="' + (ly(p) + 12) + '" text-anchor="end">' + p + '%</text>').join('') : ''
 
   const columns = buckets.map((b, i) => {
     const at = size === 24 ? b.d : b.d + ' ' + hm(b.h) + '–' + hm(b.h + size)
-    // Each window's percent at the column's middle (or now, in the column under way), its dot shown on hover.
-    const t = Math.min(start + (i + 0.5) * dur, now), read = held.map(([name, pts, color]) => [name, pts.filter(p => p[0] <= t).at(-1), color]).filter(x => x[1])
-    // The tooltip: one line each, every metric (not only the one charted) and then the windows.
-    const lines = [at].concat(Object.keys(METRIC).map(k => NAME[k] + ': ' + METRIC[k][1](METRIC[k][0](totals[i]))), read.length ? ['Rate limits at ' + new Date(t).toTimeString().slice(0, 5)].concat(read.map(([name, p]) => name + ': ' + p[1] + '%')) : [])
+    // The tooltip: one line each, every metric (not only the one charted); the hover adds the windows at the cursor.
+    const lines = [at].concat(Object.keys(METRIC).map(k => NAME[k] + ': ' + METRIC[k][1](METRIC[k][0](totals[i]))))
     const tip = esc(lines.join('\n'))
-    const dots = read.map(([, p, color]) => '<circle class="dot" cx="' + lx(t).toFixed(1) + '" cy="' + ly(p[1]).toFixed(1) + '" r="3.5" style="fill:' + color + '"/>').join('')
     const label = shown.has(i) ? '<text x="' + inside(px(i)) + '" y="' + (H + 16) + '" text-anchor="middle">' + (hourly ? hm(b.h) : b.d.slice(5)) + '</text>' : ''
-    return '<g class="day" data-tip="' + tip + '" aria-label="' + esc(lines.join(', ')) + '"><rect class="hit" x="' + i * step + '" y="0" width="' + step + '" height="' + H + '"/><line class="cursor" x1="' + px(i) + '" x2="' + px(i) + '" y1="0" y2="' + H + '"/><circle class="dot" cx="' + px(i) + '" cy="' + py(values[i]) + '" r="3.5"/>' + dots + label + '</g>'
+    return '<g class="day" data-tip="' + tip + '" aria-label="' + esc(lines.join(', ')) + '"><rect class="hit" x="' + i * step + '" y="0" width="' + step + '" height="' + H + '"/><circle class="dot" cx="' + px(i) + '" cy="' + py(values[i]) + '" r="3.5"/>' + label + '</g>'
   }).join('')
   const pts = values.map((v, i) => px(i).toFixed(1) + ',' + py(v).toFixed(1))
   const line = pts.length ? '<path class="area" d="M' + px(0) + ',' + H + 'L' + pts.join('L') + 'L' + px(pts.length - 1) + ',' + H + 'Z"/><path class="line" d="M' + pts.join('L') + '"/>' : ''
@@ -526,17 +528,23 @@ for (const c of document.querySelectorAll('[data-group]')) c.onchange = () => se
 const render = () => { drawSide(); drawLimits(); draw() }
 render()
 
-// Chart tooltip: above the hovered day's column.
+// Chart tooltip: the hovered step's figures, and a line at the cursor itself, not snapped to the step,
+// with each window's percent at that time. The line is added here since each draw replaces the chart.
 const chart = document.getElementById('chart'), tip = chart.querySelector('.tip')
-chart.onmouseover = e => {
-  const g = e.target.closest('.day')
+chart.onmousemove = e => {
+  const g = e.target.closest('.day'), svg = chart.querySelector('svg')
   if (!g) return
-  const c = chart.getBoundingClientRect(), r = g.querySelector('.hit').getBoundingClientRect()
-  tip.textContent = g.dataset.tip
+  const c = chart.getBoundingClientRect(), r = svg.getBoundingClientRect()
+  const at = svg.limitsAt(((e.clientX - r.left) / r.width) * 840)
+  let cur = svg.querySelector('.hover')
+  if (!cur) svg.insertAdjacentHTML('beforeend', '<g class="hover"></g>'), cur = svg.querySelector('.hover')
+  cur.innerHTML = '<line class="cursor" x1="' + at.x + '" x2="' + at.x + '" y1="0" y2="160"/>' + at.read.map(([, , color, y]) => '<circle cx="' + at.x + '" cy="' + y + '" r="3.5" style="fill:' + color + '"/>').join('')
+  cur.style.display = ''
+  tip.textContent = g.dataset.tip + (at.read.length ? '\nRate limits at ' + new Date(at.t).toTimeString().slice(0, 5) + at.read.map(([name, p]) => '\n' + name + ': ' + p + '%').join('') : '')
   tip.hidden = false
   const half = tip.offsetWidth / 2
-  tip.style.left = Math.min(Math.max(r.left - c.left + r.width / 2, half), c.width - half) + 'px'
+  tip.style.left = Math.min(Math.max(e.clientX - c.left, half), c.width - half) + 'px'
   tip.style.top = r.top - c.top - 4 + 'px'
 }
-chart.onmouseleave = () => { tip.hidden = true }
+chart.onmouseleave = () => { tip.hidden = true; const cur = chart.querySelector('.hover'); if (cur) cur.style.display = 'none' }
 `
