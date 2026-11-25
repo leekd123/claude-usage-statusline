@@ -195,6 +195,7 @@ h1{font-size:20px;margin:0 0 4px}h2{font-size:15px;margin:32px 0 8px}
 .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-top:16px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
 .label,.sub{color:var(--dim);font-size:12px}.value{font-size:20px;font-weight:600}
+.today{margin-top:8px;padding-top:6px;border-top:1px solid var(--line);color:var(--dim);font-size:12px}.today b{color:var(--fg);font-size:15px;font-weight:600;margin-left:4px}
 .delta{font-size:12px;font-weight:500;margin-left:6px}.delta.up{color:var(--up)}.delta.down{color:var(--down)}
 svg{width:100%;height:auto;display:block}.chart svg{aspect-ratio:840/182}#breakdown,#sessions{min-height:120px}svg text{fill:var(--dim);font-size:10px}
 .line{fill:none;stroke:var(--bar);stroke-width:2;stroke-linejoin:round;pointer-events:none}.area{fill:var(--bar);opacity:.15;pointer-events:none}.grid{stroke:var(--line);pointer-events:none}.axis{pointer-events:none}.dot{fill:var(--bar);opacity:0}.lim{fill:none;stroke-width:2;pointer-events:none}.cursor{stroke:var(--dim);stroke-width:1;pointer-events:none}.day .cursor{visibility:hidden}.day:hover .cursor{visibility:visible}.legend{display:flex;gap:14px;color:var(--dim);font-size:12px}.legend i{display:inline-block;width:10px;height:3px;border-radius:2px;margin-right:6px;vertical-align:middle}.day:hover .dot{opacity:1}
@@ -408,14 +409,17 @@ const draw = () => {
   for (const b of document.querySelectorAll('[data-metric]')) b.setAttribute('aria-pressed', String(b.dataset.metric === state.metric))
   for (const c of document.querySelectorAll('[data-group]')) c.checked = !!state.groups[c.dataset.group]
 
-  // One card per metric for the period, with the change from the period before it.
+  // One card per metric for the period, with the change from the period before it, and today's value
+  // whatever the period (unless the period is today).
+  const today = n === 1 ? null : sum(inDays([DATA.today]))
   document.getElementById('kpis').innerHTML = Object.keys(METRIC).map(key => {
     const [pick, show] = METRIC[key], v = pick(cur), p = pick(prev)
+    const todayNote = today ? '<div class="today">Today<b>' + show(pick(today)) + '</b></div>' : ''
     const pct = p > 0 ? Math.round(((v - p) / p) * 100) : null
     const delta = pct === null ? '' : '<span class="delta ' + (pct >= 0 ? 'up' : 'down') + '">' + (pct >= 0 ? '↑' : '↓') + Math.abs(pct) + '%</span>'
     const versus = 'vs previous ' + (roll ? -n + ' hours' : n === 1 ? 'day' : n + ' days')
     const note = n === 0 ? when : pct === null ? versus + ' · no data' : versus
-    return '<div class="card"><div class="label">' + NAME[key] + '</div><div class="value">' + show(v) + delta + '</div><div class="sub">' + note + '</div></div>'
+    return '<div class="card"><div class="label">' + NAME[key] + '</div><div class="value">' + show(v) + delta + '</div><div class="sub">' + note + '</div>' + todayNote + '</div>'
   }).join('')
 
   // The chart: the metric over the period as a line, in buckets of the chosen step or, on Auto, one sized
