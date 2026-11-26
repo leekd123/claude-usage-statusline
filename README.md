@@ -42,8 +42,9 @@ Run `/usage-stats` to build the page from the usage log and open it in your brow
 - **Period**: Today, 12h, 1d, 3d, 7d, 14d, 30d, 90d or All, at the top. 12h and 1d are the last 12 or 24 hours up to now; the others are whole local days ending today.
 - **Project**: the sidebar on the left filters everything by project. Lines logged before projects were recorded show under `(no project)`, and the desktop app's own folders for a conversation with no folder picked (`scratch-<day>-<id>`) and for the sessions it starts ahead of time (`~/.claude/spares/spare-<id>`) together under `(scratch)`.
 - **Chart step**, **chart metric** and **breakdown grouping**: the buttons above the chart and the Day, Project and Model checkboxes above the breakdown.
-- **Theme**: Light, Dark or System, at the foot of the sidebar.
-- **Auto refresh**: the button at the foot of the sidebar turns it off and on, the list beside it sets how often (5s, 10s, 15s, 30s, 1m, 5m or 15m; 1m unless chosen), and the time to the next reload shows next to them.
+- **Sidebar**: ☰ in the title bar opens and closes it, and ✕ at its top closes it. The title bar stays at the top while you scroll and names the project shown.
+- **Theme**: Light, Dark or System, in the title bar.
+- **Auto refresh**: the button in the title bar turns it off and on, the list beside it sets how often (5s, 10s, 15s, 30s, 1m, 5m or 15m; 1m unless chosen), and the time to the next reload shows next to them.
 
 The browser remembers every choice. The sidebar's foot also links to this repository on GitHub.
 
@@ -53,7 +54,7 @@ The browser remembers every choice. The sidebar's foot also links to this reposi
 - It writes `stats.html` only when a session starts (or when the file is missing). After a change to the page, `/reload-plugins` in one session puts the new page in place, and sessions still on older code leave it there, writing only `data.js`. Only a change to what `data.js` holds needs every session reloaded; until then the page says so instead of drawing.
 - The page loads `data.js` again by itself (each minute unless you choose otherwise) and redraws in place, so keeping it open or bookmarking it is enough. It reloads whole only when `data.js` names a newer `stats.html`.
 - `data.js` holds the log summed per day, hour, project, session and model, and the page's own script draws from that. Changing a choice needs no rebuild.
-- The sidebar's foot shows how long the last build took and how many lines it read. Every build reads the whole log, so if that time grows past a second or so, the build is due to keep per-day sums instead.
+- The sidebar's foot and the title bar show how long the last build took and how many lines it read. Every build reads the whole log, so if that time grows past a second or so, the build is due to keep per-day sums instead.
 
 ## Desktop widget (Windows)
 

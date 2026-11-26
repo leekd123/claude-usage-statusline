@@ -190,6 +190,9 @@ body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 system-ui,sans-
 main{max-width:1100px;width:100%;box-sizing:border-box;margin:0 auto;padding:24px}
 h1{font-size:20px;margin:0 0 4px}h2{font-size:15px;margin:32px 0 8px}
 .top{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin:32px 0 0}.top h2{margin:0}
+.bar{position:sticky;top:0;z-index:5;display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:-24px -24px 0;padding:12px 24px;background:var(--bg);border-bottom:1px solid var(--line)}.bar h2{margin:0;flex:1;font-size:18px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.menu{font:inherit;font-size:16px;line-height:1;padding:4px 8px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--fg);cursor:pointer}
+.app.collapsed{grid-template-columns:minmax(0,1fr)}.app.collapsed .side{display:none}
 .head{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin:32px 0 8px}.head h2{margin:0}
 .note{color:var(--dim);font-size:12px}
 .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-top:16px}
@@ -208,7 +211,8 @@ th:first-child,td:first-child,.two th:nth-child(2),.two td:nth-child(2),.three t
 .group{display:flex;gap:14px;align-items:center;color:var(--dim);font-size:12px;margin-bottom:6px}.group label{display:inline-flex;gap:4px;align-items:center;color:var(--fg);cursor:pointer}th{color:var(--dim);font-weight:500}
 .app{display:grid;grid-template-columns:250px minmax(0,1fr);min-height:100vh}
 .side{position:sticky;top:0;height:100vh;box-sizing:border-box;overflow-y:auto;display:flex;flex-direction:column;padding:20px 12px;border-right:1px solid var(--line);background:var(--card)}
-.side h1{font-size:16px;margin:0 8px 20px}
+.side h1{font-size:16px;margin:0}.sidehead{display:flex;justify-content:space-between;align-items:center;gap:8px;margin:0 8px 20px}
+.close{font:inherit;font-size:14px;line-height:1;padding:4px 6px;border:0;border-radius:6px;background:none;color:var(--dim);cursor:pointer}.close:hover{background:var(--hover);color:var(--fg)}
 .side .label{margin:0 0 6px 8px}
 .side nav{display:flex;flex-direction:column;gap:2px}
 .side nav button{display:flex;justify-content:space-between;gap:8px;font:inherit;text-align:left;padding:6px 8px;border:0;border-radius:6px;background:none;color:var(--fg);cursor:pointer}
@@ -219,11 +223,12 @@ th:first-child,td:first-child,.two th:nth-child(2),.two td:nth-child(2),.three t
 main>h2:first-child{margin-top:0}
 @media (max-width:720px){.app{grid-template-columns:minmax(0,1fr)}.side{position:static;height:auto;border-right:0;border-bottom:1px solid var(--line)}.side nav{flex-direction:row;flex-wrap:wrap}.side .foot{margin-top:12px}}
 </style></head><body><div class="app">
-<aside class="side"><h1>Claude usage</h1><div class="label">Projects</div><nav aria-label="Projects" id="nav"><button data-project="" aria-pressed="true"><span>All projects</span><small>—</small></button></nav>
-<div class="foot"><a class="repo" href="${REPO}" target="_blank" rel="noopener noreferrer">usage-statusline on GitHub ↗</a><div class="note" id="built">&nbsp;</div>
-<div class="reload"><span class="refresh"><button aria-pressed="true">Auto refresh</button></span> <select class="every" aria-label="Refresh every"><option value="5">5s</option><option value="10">10s</option><option value="15">15s</option><option value="30">30s</option><option value="60">1m</option><option value="300">5m</option><option value="900">15m</option></select> <span class="note next"></span></div>
-<div class="theme" role="group" aria-label="Theme"><button data-theme="light">Light</button><button data-theme="dark">Dark</button><button data-theme="system">System</button></div></div></aside>
+<aside class="side" id="side"><div class="sidehead"><h1>Claude usage</h1><button class="close" aria-label="Close sidebar" title="Close sidebar">✕</button></div><div class="label">Projects</div><nav aria-label="Projects" id="nav"><button data-project="" aria-pressed="true"><span>All projects</span><small>—</small></button></nav>
+<div class="foot"><a class="repo" href="${REPO}" target="_blank" rel="noopener noreferrer">usage-statusline on GitHub ↗</a><div class="note" id="built">&nbsp;</div></div></aside>
 <main>
+<div class="bar"><button class="menu" aria-label="Sidebar" aria-expanded="true" aria-controls="side">☰</button><h2 id="title">&nbsp;</h2><span class="note" id="built-bar" title="Page build time and logs read"></span>
+<div class="reload"><span class="refresh"><button aria-pressed="true">Auto refresh</button></span> <select class="every" aria-label="Refresh every"><option value="5">5s</option><option value="10">10s</option><option value="15">15s</option><option value="30">30s</option><option value="60">1m</option><option value="300">5m</option><option value="900">15m</option></select> <span class="note next"></span></div>
+<div class="theme" role="group" aria-label="Theme"><button data-theme="light">Light</button><button data-theme="dark">Dark</button><button data-theme="system">System</button></div></div>
 <h2>Rate limits</h2>
 <div id="limits">${PLACEHOLDER_LIMITS}</div>
 <div class="top"><h2 id="scope">&nbsp;</h2>${seg('period', PERIODS)}</div>
@@ -324,6 +329,7 @@ const drawSide = () => {
     .map(p => '<button data-project="' + esc(p[0]) + '"><span>' + esc(p[1]) + '</span><small>' + fmt(p[2]) + '</small></button>').join('')
   const b = DATA.built
   document.getElementById('built').textContent = 'Built ' + DATA.today + " from this machine's usage-statusline logs" + (b ? ' in ' + b.ms + ' ms, ' + b.lines.toLocaleString('en') + ' lines in ' + b.files + ' files' : '') + '.'
+  document.getElementById('built-bar').textContent = b ? b.ms + ' ms · ' + b.lines.toLocaleString('en') + ' lines · ' + b.files + ' files' : ''
 }
 
 // Rate limits: one card per window, as the last reading any session took, with the time left to its
@@ -402,7 +408,8 @@ const draw = () => {
   const prev = sum(roll ? within(now - 2 * roll, now - roll) : inDays(prevDays))
   const when = roll ? 'last ' + -n + ' hours' : n === 1 ? 'today' : n ? 'last ' + n + ' days' : 'all time'
 
-  document.getElementById('scope').textContent = (state.project || 'All projects') + ' · ' + when
+  document.getElementById('title').textContent = state.project || 'All projects'
+  document.getElementById('scope').textContent = when[0].toUpperCase() + when.slice(1)
   for (const b of document.querySelectorAll('.side nav button')) b.setAttribute('aria-pressed', String(b.dataset.project === state.project))
   for (const b of document.querySelectorAll('[data-period]')) b.setAttribute('aria-pressed', String(Number(b.dataset.period) === n))
   for (const b of document.querySelectorAll('[data-step]')) b.setAttribute('aria-pressed', String(Number(b.dataset.step) === state.step))
@@ -521,6 +528,11 @@ document.getElementById('nav').onclick = e => {
   try { localStorage.setItem('usage-project', b.dataset.project) } catch {}
   set('project', b.dataset.project)
 }
+const menu = document.querySelector('.menu')
+const showSide = open => { document.querySelector('.app').classList.toggle('collapsed', !open); menu.setAttribute('aria-expanded', String(open)) }
+showSide(kept('usage-side', true))
+menu.onclick = () => { const open = menu.getAttribute('aria-expanded') !== 'true'; keep('usage-side', open); showSide(open) }
+document.querySelector('.close').onclick = () => { keep('usage-side', false); showSide(false); menu.focus() }
 for (const b of document.querySelectorAll('[data-period]')) b.onclick = () => set('period', Number(b.dataset.period), 'usage-period')
 for (const b of document.querySelectorAll('[data-step]')) b.onclick = () => set('step', Number(b.dataset.step), 'usage-step')
 for (const b of document.querySelectorAll('[data-metric]')) b.onclick = () => set('metric', b.dataset.metric, 'usage-metric')
