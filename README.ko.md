@@ -28,6 +28,11 @@
 
 `/usage-stats`를 실행하면 사용량 기록으로 페이지를 만들어 브라우저로 엽니다. 서버나 네트워크 없이 나란히 놓인 파일 두 개로 되어 있습니다. `stats.html`은 페이지 자체이고, `data.js`는 페이지가 그리는 수치입니다.
 
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="docs/images/stats-page-light.png">
+  <img alt="통계 페이지 (예시 데이터)" src="docs/images/stats-page.png">
+</picture>
+
 **보여 주는 것**
 
 - **rate limit**: 창마다 사용률과 초기화까지 남은 시간입니다. 페이지를 열어 두면 남은 시간이 줄어듭니다.
@@ -59,6 +64,10 @@
 ## 데스크톱 위젯 (Windows)
 
 같은 값을 바탕화면의 작은 반투명 창에 보여 주는, Claude와 따로 도는 프로그램입니다. `bin/usage-widget.exe`이고, 약 200 KB짜리 Rust 프로그램이며 스스로는 네트워크 요청을 하지 않습니다. mod가 마지막으로 쓴 값을 보여 주므로, Claude가 꺼져 있는 동안에는 그 값을 그대로 두고 각 리셋까지 남은 시간만 줄여 가다가, 세션이 응답을 받으면 다시 움직입니다.
+
+![가로로 놓은 데스크톱 위젯 (예시 데이터)](docs/images/widget.png)
+
+![세로로 놓은 데스크톱 위젯 (예시 데이터)](docs/images/widget-vertical.png)
 
 **켜고 끄기**
 

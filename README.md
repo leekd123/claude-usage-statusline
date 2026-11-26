@@ -28,6 +28,11 @@ A Claude Code mod that shows your usage in the status line under the prompt, kee
 
 Run `/usage-stats` to build the page from the usage log and open it in your browser. It is two files side by side, with no server or network: `stats.html`, the page itself, and `data.js`, the figures it draws.
 
+<picture>
+  <source media="(prefers-color-scheme: light)" srcset="docs/images/stats-page-light.png">
+  <img alt="The statistics page, with sample data" src="docs/images/stats-page.png">
+</picture>
+
 **What it shows**
 
 - **Rate limits**: each window's usage and the time left to its reset, counting down while the page is open.
@@ -59,6 +64,10 @@ The browser remembers every choice. The sidebar's foot also links to this reposi
 ## Desktop widget (Windows)
 
 A small translucent window on the desktop with the same figures, kept apart from Claude: `bin/usage-widget.exe`, a Rust program of about 200 KB that makes no network requests of its own. It shows what the mod last wrote, so while Claude is closed it keeps those figures and counts down to each reset, and it moves again once a session has a response.
+
+![The desktop widget, laid out in a row, with sample data](docs/images/widget.png)
+
+![The desktop widget, laid out in a column, with sample data](docs/images/widget-vertical.png)
 
 **Starting and stopping**
 
